@@ -1,0 +1,6 @@
+{
+  "name": "上海高校教员家教接单平台",
+  "description": "为上海高校在校大学生及教员提供的高端家教接单平台。支持多维地区、学科筛选，高级距离/薪资精准筛选，高校地标绑定，地图点位分布，详细出行路线规划，及微信一键扫码接单对接。",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

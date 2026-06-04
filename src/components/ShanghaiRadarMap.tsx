@@ -1,0 +1,520 @@
+import { useEffect, useRef, useState, useMemo } from 'react';
+import { Compass, RotateCcw } from 'lucide-react';
+import { Landmark, Order } from '../types';
+import { loadAMapScript, AMAP_CONFIG, forwardGeocode } from '../services/amap';
+
+interface ShanghaiRadarMapProps {
+  currentLandmark: Landmark | null;
+  filteredOrders: Order[];
+  selectedOrderId: string | null;
+  setSelectedOrderId: (id: string | null) => void;
+  maxDistance: number;
+  onModifyLandmark: () => void;
+  activeTab: 'list' | 'map';
+}
+
+export default function ShanghaiRadarMap({
+  currentLandmark,
+  filteredOrders,
+  selectedOrderId,
+  setSelectedOrderId,
+  maxDistance,
+  onModifyLandmark,
+  activeTab,
+}: ShanghaiRadarMapProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const mapRef = useRef<any>(null);
+  
+  const [isLoaded, setIsLoaded] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  // Cache to map student text addresses to true geocoded Lat/Lng to prevent shifting/wrong locations
+  const [geocodedCache, setGeocodedCache] = useState<Record<string, { lat: number; lng: number }>>({});
+  const geocodedCacheRef = useRef<Record<string, { lat: number; lng: number }>>({});
+
+  // Elements Tracking Refs
+  const markersRef = useRef<any[]>([]);
+  const landmarkMarkerRef = useRef<any>(null);
+  const radiusCircleRef = useRef<any>(null);
+  const districtPolygonsRef = useRef<any[]>([]);
+  const infoWindowRef = useRef<any>(null);
+
+  // Selected & Hovered trackers
+  const [selectedMapOrder, setSelectedMapOrder] = useState<Order | null>(null);
+
+  // Geocode any addresses that are not currently cached in the local state
+  useEffect(() => {
+    if (!isLoaded) return;
+
+    const pendingOrders = filteredOrders.filter((order) => !geocodedCacheRef.current[order.id]);
+
+    if (pendingOrders.length === 0) return;
+
+    pendingOrders.forEach((order) => {
+      forwardGeocode(order.address, { 
+        district: order.district, 
+        anchor: order.coordinate,
+        maxDeviationKm: 10
+      }).then((result) => {
+        const coords = result.coordinate;
+        geocodedCacheRef.current[order.id] = coords;
+        setGeocodedCache({ ...geocodedCacheRef.current });
+        
+        if (mapRef.current) {
+          updateMarkersAndCoordinates();
+        }
+      }).catch((err) => {
+        console.warn(`Failed to geocode order ${order.id}:`, err);
+      });
+    });
+  }, [isLoaded, filteredOrders]);
+
+  // Load AMap API Script on mount
+  useEffect(() => {
+    loadAMapScript()
+      .then(() => {
+        setIsLoaded(true);
+      })
+      .catch((err) => {
+        console.error('AMap startup failed:', err);
+        setLoadError('高德地图底图加载失败，请检查您的网络连接或稍后重试。');
+      });
+  }, []);
+
+  // Initialize Map Instance
+  useEffect(() => {
+    if (!isLoaded || !containerRef.current || mapRef.current) return;
+
+    const AMap = (window as any).AMap;
+
+    try {
+      // 1. Core Map initialization with Satellite (卫星地图) fixed mode + RoadNet (路网图层) overlay
+      const mapInstance = new AMap.Map(containerRef.current, {
+        center: currentLandmark 
+          ? [currentLandmark.coordinate.lng, currentLandmark.coordinate.lat] 
+          : [121.4737, 31.2304], // Shanghai center
+        zoom: 12,
+        viewMode: '3D',
+        pitch: 15,
+        theme: 'dark', // Keep theme dark
+        layers: [
+          new AMap.TileLayer.Satellite(),
+          new AMap.TileLayer.RoadNet()
+        ]
+      });
+
+      mapRef.current = mapInstance;
+
+      // Create a unified InfoWindow reuse instance
+      infoWindowRef.current = new AMap.InfoWindow({
+        isCustom: true,
+        offset: new AMap.Pixel(0, -25),
+      });
+
+      // 2. Load Shanghai District boundary micro-glowing contour
+      loadShanghaiDistrictOutlines(mapInstance);
+
+      // Force render markers once map is loaded completely
+      setTimeout(() => {
+        updateMarkersAndCoordinates();
+      }, 500);
+
+    } catch (e) {
+      console.error('AMap instantiation failed:', e);
+      setLoadError('高德地图组件渲染失败，请检查浏览器配置。');
+    }
+
+    return () => {
+      // Map cleanup
+      if (mapRef.current) {
+        mapRef.current.destroy();
+        mapRef.current = null;
+      }
+    };
+  }, [isLoaded]);
+
+  // Load Shanghai 16 administrative district outline glowing shadows
+  const loadShanghaiDistrictOutlines = (map: any) => {
+    const AMap = (window as any).AMap;
+    const SHANGHAI_DISTRICTS = [
+      '黄浦区', '徐汇区', '长宁区', '静安区', '普陀区', '虹口区', 
+      '杨浦区', '闵行区', '宝山区', '嘉定区', '浦东新区', '金山区', 
+      '松江区', '青浦区', '奉贤区', '崇明区'
+    ];
+
+    SHANGHAI_DISTRICTS.forEach((districtName) => {
+      const searcher = new AMap.DistrictSearch({
+        subdistrict: 0,
+        extensions: 'all',
+        level: 'district'
+      });
+
+      searcher.search(districtName, (status: string, result: any) => {
+        if (status === 'complete' && result.districtList && result.districtList[0]) {
+          const boundaries = result.districtList[0].boundaries;
+          if (boundaries && map) {
+            boundaries.forEach((boundary: any) => {
+              const polygon = new AMap.Polygon({
+                path: boundary,
+                strokeColor: '#38bdf8', // Light glowing blue
+                strokeOpacity: 0.45,
+                strokeWeight: 1.2,
+                fillColor: '#38bdf8',
+                fillOpacity: 0.015,
+                bubble: true,
+              });
+              polygon.setMap(map);
+              districtPolygonsRef.current.push(polygon);
+            });
+          }
+        }
+      });
+    });
+  };
+
+  // Synchronize Markers & Radius Circle Whenever dependencies render
+  const updateMarkersAndCoordinates = () => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const AMap = (window as any).AMap;
+
+    // 1. Erase stale markers
+    markersRef.current.forEach(m => m.setMap(null));
+    markersRef.current = [];
+
+    // 2. Draw Tutor Anchor Point (青蓝色定位/地标)
+    if (landmarkMarkerRef.current) {
+      landmarkMarkerRef.current.setMap(null);
+      landmarkMarkerRef.current = null;
+    }
+
+    if (currentLandmark) {
+      const centerPos = [currentLandmark.coordinate.lng, currentLandmark.coordinate.lat];
+      
+      const landmarkContent = document.createElement('div');
+      landmarkContent.className = 'relative flex items-center justify-center';
+      landmarkContent.innerHTML = `
+        <div class="absolute w-12 h-12 bg-cyan-400/20 rounded-full animate-ping" style="animation-duration: 3s;"></div>
+        <div class="absolute w-6 h-6 bg-cyan-500/40 rounded-full"></div>
+        <div class="w-4 h-4 bg-cyan-400 rounded-full border-2 border-white flex items-center justify-center shadow-md shadow-cyan-500/50">
+          <div class="w-1.5 h-1.5 bg-white rounded-full"></div>
+        </div>
+        <div class="absolute -top-7 bg-cyan-600 border border-cyan-400 text-white font-bold text-[9px] px-1.5 py-0.5 rounded shadow whitespace-nowrap leading-none select-none">
+          中心: ${currentLandmark.name.split(' ')[0]}
+        </div>
+      `;
+
+      landmarkMarkerRef.current = new AMap.Marker({
+        position: centerPos,
+        content: landmarkContent,
+        offset: new AMap.Pixel(-10, -10),
+        zIndex: 150,
+      });
+      landmarkMarkerRef.current.setMap(map);
+
+      // 3. Draw Commute Radiance Circle Limit
+      if (radiusCircleRef.current) {
+        radiusCircleRef.current.setMap(null);
+        radiusCircleRef.current = null;
+      }
+
+      radiusCircleRef.current = new AMap.Circle({
+        center: centerPos,
+        radius: maxDistance * 1000, // standard conversion to meters
+        strokeColor: '#00e5ff',
+        strokeOpacity: 0.45,
+        strokeWeight: 1.5,
+        fillColor: '#00e5ff',
+        fillOpacity: 0.05,
+        strokeStyle: 'dashed',
+        strokeDasharray: [6, 6],
+        pointerEvents: 'none',
+      });
+      radiusCircleRef.current.setMap(map);
+    }
+
+    // 4. Place Student Tutor Order Icons (卫星精准落位)
+    filteredOrders.forEach((order) => {
+      // Fetch precise coordinate from cache, fallback to seed coordinates to ensure resilience
+      const coords = geocodedCacheRef.current[order.id] || order.coordinate;
+      const isSelected = selectedOrderId === order.id;
+
+      const orderContent = document.createElement('div');
+      orderContent.className = 'relative flex items-center justify-center';
+
+      if (order.isHighPrice) {
+        // High price orders rendered as orange/red with a flame symbol
+        orderContent.innerHTML = `
+          <div class="relative flex items-center justify-center cursor-pointer transition-all hover:scale-115">
+            ${isSelected ? '<div class="absolute w-10 h-10 bg-red-500/30 rounded-full animate-ping" style="animation-duration: 1.5s;"></div>' : ''}
+            <div class="w-6 h-6 bg-red-600 rounded-full border-2 border-orange-400 flex items-center justify-center shadow-lg transform transition hover:scale-110">
+              <span class="text-[10px] leading-none">🔥</span>
+            </div>
+            ${isSelected ? '<div class="absolute -bottom-1 -right-1 bg-orange-500 w-2 h-2 rounded-full border border-white"></div>' : ''}
+          </div>
+        `;
+      } else {
+        // Normal orders rendered as bright green dots
+        orderContent.innerHTML = `
+          <div class="relative flex items-center justify-center cursor-pointer transition-all hover:scale-115">
+            ${isSelected ? '<div class="absolute w-8 h-8 bg-emerald-500/30 rounded-full animate-ping" style="animation-duration: 1.8s;"></div>' : ''}
+            <div class="w-4 h-4 bg-emerald-500 rounded-full border-2 border-white flex items-center justify-center shadow-md transform transition hover:scale-110">
+              <div class="w-1.5 h-1.5 bg-white rounded-full"></div>
+            </div>
+            ${isSelected ? '<div class="absolute -bottom-0.5 -right-0.5 bg-emerald-600 w-1.5 h-1.5 rounded-full border border-white"></div>' : ''}
+          </div>
+        `;
+      }
+
+      const markerInstance = new AMap.Marker({
+        position: [coords.lng, coords.lat],
+        content: orderContent,
+        offset: new AMap.Pixel(-10, -10),
+        zIndex: isSelected ? 120 : 100,
+        extData: order,
+      });
+
+      // Hover overlay trigger popup: 【科目 | 时薪】
+      markerInstance.on('mouseover', (e: any) => {
+        const infoWindow = infoWindowRef.current;
+        if (!infoWindow) return;
+
+        infoWindow.setContent(`
+          <div class="bg-neutral-950/95 border border-neutral-700/80 p-2.5 rounded-xl shadow-2xl text-white font-sans text-xs min-w-[140px] select-none backdrop-blur animate-fade-in">
+            <div class="flex items-center justify-between gap-2.5 border-b border-neutral-800 pb-1.5 mb-1.5">
+              <span class="bg-orange-500 text-white font-black text-[10px] px-1.5 py-0.5 rounded leading-none shrink-0">${order.subject}</span>
+              <span class="font-extrabold text-[11px] font-mono ${order.isHighPrice ? 'text-red-400' : 'text-emerald-400'}">
+                ${order.isNegotiable ? '面议' : `¥${order.price}/h`}
+              </span>
+            </div>
+            <div class="text-[10px] text-neutral-400 flex items-center justify-between gap-1">
+              <span>年级: ${order.grade}</span>
+              <span class="text-neutral-500 truncate max-w-[70px]">${order.district}</span>
+            </div>
+            <div class="text-[9px] text-neutral-510 leading-snug mt-1 truncate border-t border-neutral-900 pt-1">
+              ${order.address}
+            </div>
+          </div>
+        `);
+        infoWindow.open(map, markerInstance.getPosition());
+      });
+
+      markerInstance.on('mouseout', () => {
+        const infoWindow = infoWindowRef.current;
+        if (infoWindow) {
+          infoWindow.close();
+        }
+      });
+
+      markerInstance.on('click', () => {
+        setSelectedOrderId(order.id);
+        setSelectedMapOrder(order);
+      });
+
+      markerInstance.setMap(map);
+      markersRef.current.push(markerInstance);
+    });
+
+    // Auto fit/pan to fit landmark and orders if available
+    if (currentLandmark && markersRef.current.length > 0) {
+      // Pan to the tutor landmark as center smoothly
+      map.panTo([currentLandmark.coordinate.lng, currentLandmark.coordinate.lat]);
+    }
+  };
+
+  // Re-run syncing whenever parameters shift
+  useEffect(() => {
+    if (isLoaded) {
+      updateMarkersAndCoordinates();
+    }
+  }, [isLoaded, currentLandmark, filteredOrders, selectedOrderId, maxDistance]);
+
+  // Adjust center or zoom level through map instance
+  const zoomIn = () => {
+    if (mapRef.current) {
+      mapRef.current.zoomUp();
+    }
+  };
+
+  const zoomOut = () => {
+    if (mapRef.current) {
+      mapRef.current.zoomDown();
+    }
+  };
+
+  const resetView = () => {
+    if (mapRef.current) {
+      if (currentLandmark) {
+        mapRef.current.setZoomAndCenter(12.5, [currentLandmark.coordinate.lng, currentLandmark.coordinate.lat]);
+      } else {
+        mapRef.current.setZoomAndCenter(11.5, [121.4737, 31.2304]);
+      }
+    }
+  };
+
+  return (
+    <div className="flex-1 w-full h-full flex flex-col relative bg-neutral-950 font-sans overflow-hidden">
+      {/* Absolute Header Overlay panel */}
+      <div className="absolute top-3 left-3 bg-neutral-950/90 backdrop-blur border border-neutral-800 p-3 rounded-xl z-30 max-w-xs space-y-1.5 shadow-2xl select-none">
+        <h4 className="text-xs font-extrabold text-orange-500 tracking-wide flex items-center gap-1.5">
+          <Compass className="w-4 h-4" />
+          <span>上海附近实景卫星雷达</span>
+        </h4>
+        <p className="text-[10px] text-neutral-400 leading-snug">
+          主底图已部署【高德高清卫星实景】，叠加16行政区发光边境。已锁定真实小区地理围栏坐标。
+        </p>
+
+        {currentLandmark ? (
+          <div className="text-[10px] bg-neutral-900 border border-neutral-800/80 p-2 rounded-lg text-neutral-300 font-sans space-y-1">
+            <div className="text-[9px] text-neutral-500 font-semibold tracking-wider uppercase">教员参考驻点:</div>
+            <div className="text-neutral-100 font-bold truncate">{currentLandmark.name}</div>
+            <div className="text-cyan-400 font-bold text-[9.5px] border-t border-neutral-800 pt-1 mt-0.5">
+              通勤范围上限: {maxDistance}公里半直径范围
+            </div>
+          </div>
+        ) : (
+          <button 
+            onClick={onModifyLandmark}
+            className="w-full mt-1.5 py-1.5 bg-red-600 hover:bg-red-700 text-white text-[10px] font-bold rounded-lg transition"
+          >
+            未绑定地标，请先设置授课起始点
+          </button>
+        )}
+
+        <div className="pt-1.5 border-t border-neutral-900 text-[9.5px] text-neutral-500 flex justify-between font-medium">
+          <span className="flex items-center gap-1">
+            <span className="w-2 h-2 bg-emerald-500 rounded-full"></span>可接单 ({filteredOrders.length})
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>高价单🔥
+          </span>
+        </div>
+      </div>
+
+      {/* Floating Speed Radar Zoom controllers */}
+      <div className="absolute top-3 right-3 flex flex-col gap-1.5 z-30 select-none">
+        <button 
+          onClick={zoomIn} 
+          className="w-8 h-8 bg-neutral-950/90 hover:bg-neutral-800 border border-neutral-800 font-sans text-base font-extrabold rounded-lg flex items-center justify-center text-white cursor-pointer active:scale-95 shadow-lg active:border-neutral-700/50"
+          title="放大"
+        >
+          ＋
+        </button>
+        <button 
+          onClick={zoomOut} 
+          className="w-8 h-8 bg-neutral-950/90 hover:bg-neutral-800 border border-neutral-800 font-sans text-base font-extrabold rounded-lg flex items-center justify-center text-white cursor-pointer active:scale-95 shadow-lg active:border-neutral-700/50"
+          title="缩小"
+        >
+          －
+        </button>
+        <button 
+          onClick={resetView} 
+          className="w-8 h-8 bg-neutral-950/90 hover:bg-neutral-800 border border-neutral-800 rounded-lg flex items-center justify-center text-neutral-300 cursor-pointer active:scale-95 shadow-lg"
+          title="重置视角及聚焦"
+        >
+          <RotateCcw className="w-4 h-4" />
+        </button>
+      </div>
+
+      {/* Loading & Error Boundary */}
+      {loadError ? (
+        <div className="flex-1 flex flex-col items-center justify-center p-6 text-center select-none bg-neutral-900 border border-neutral-800">
+          <div className="text-3xl mb-2">📡</div>
+          <h4 className="font-bold text-red-500 text-sm">高德底图异常</h4>
+          <p className="text-xs text-neutral-400 mt-2 max-w-xs leading-relaxed">{loadError}</p>
+        </div>
+      ) : !isLoaded ? (
+        <div className="flex-1 flex flex-col items-center justify-center bg-[#111216] text-center select-none">
+          <div className="relative mb-3 flex items-center justify-center">
+            <div className="absolute animate-ping w-12 h-12 rounded-full bg-orange-500/10" style={{ animationDuration: '2s' }} />
+            <div className="p-3.5 bg-orange-500 text-white rounded-2xl relative shadow-xl shadow-orange-500/10">
+              <Compass className="w-6 h-6 animate-spin" style={{ animationDuration: '8s' }} />
+            </div>
+          </div>
+          <h4 className="font-bold text-neutral-300 text-xs">正在接入高德衛星实景圖层...</h4>
+          <p className="text-[10px] text-neutral-500 mt-1 max-w-sm">
+            底图加载时需要完成上海16行政区微光GIS数据装载，请稍候。
+          </p>
+        </div>
+      ) : null}
+
+      {/* AMap Container Anchor */}
+      <div 
+        id="amap-radar-map-container"
+        ref={containerRef} 
+        className="flex-1 w-full h-full"
+        style={{ display: loadError ? 'none' : 'block' }}
+      />
+
+      {/* Static Map Legend Guide */}
+      <div className="absolute bottom-3 right-3 bg-neutral-950/90 backdrop-blur-sm border border-neutral-800/80 px-3 py-2 rounded-lg z-30 text-[9.5px] text-neutral-400 flex items-center gap-3.5 select-none font-sans font-medium shadow-2xl">
+        <div className="flex items-center gap-1.5">
+          <span className="w-2.5 h-2.5 bg-[#EF4444] rounded-full inline-block shadow shadow-red-500/50" />
+          <span>高价家教订单</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="w-2.5 h-2.5 bg-[#10B981] rounded-full inline-block shadow shadow-emerald-500/50" />
+          <span>普通备战单</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="w-2.5 h-2.5 bg-[#06b6d4] rounded-full inline-block shadow shadow-cyan-500/50" />
+          <span>教员驻点中心</span>
+        </div>
+      </div>
+
+      {/* Click details tooltip popup block */}
+      {selectedMapOrder && (
+        <div 
+          id="amap-selected-order-tooltip"
+          className="absolute bottom-4 left-4 right-4 md:left-4 md:right-auto md:w-80 bg-neutral-950/95 backdrop-blur-sm border border-neutral-800 rounded-xl p-4 shadow-2xl z-30 select-none animate-slide-up"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex justify-between items-start mb-2">
+            <div className="min-w-0">
+              <span className="text-[9px] text-neutral-500 font-mono block uppercase">{selectedMapOrder.id}</span>
+              <h3 className="text-xs font-black text-white flex items-center gap-1.5 mt-0.5">
+                <span className="bg-orange-600 text-white text-[9.5px] px-1.5 py-0.5 rounded leading-none shrink-0">{selectedMapOrder.district}</span>
+                <span className="truncate">{selectedMapOrder.grade}{selectedMapOrder.subject}</span>
+              </h3>
+            </div>
+            <button 
+              onClick={() => {
+                setSelectedMapOrder(null);
+                setSelectedOrderId(null);
+              }} 
+              className="text-neutral-500 hover:text-white p-1 rounded-full hover:bg-neutral-800 transition"
+            >
+              ×
+            </button>
+          </div>
+
+          <p className="text-[10px] text-neutral-400 mb-2.5 leading-relaxed truncate">
+            {selectedMapOrder.studentDesc}
+          </p>
+
+          <div className="flex justify-between items-center border-t border-neutral-900 pt-2.5 text-[10px]">
+            <div className={`font-extrabold ${selectedMapOrder.isHighPrice ? 'text-red-400' : 'text-emerald-400'}`}>
+              {selectedMapOrder.isNegotiable ? '时薪: 面议协商' : `时薪: ¥${selectedMapOrder.price}/小时`}
+            </div>
+            
+            <button
+              onClick={() => {
+                // Return back to regular list and select
+                const parentNav = document.getElementById('tab-switch-regular-list-btn');
+                if (parentNav) {
+                  parentNav.click();
+                }
+                setSelectedMapOrder(null);
+              }}
+              className="px-3 py-1.5 bg-orange-500 hover:bg-orange-600 text-white text-[10px] rounded-lg font-bold transition flex items-center gap-0.5 shadow shadow-orange-500/10 cursor-pointer"
+            >
+              <span>打开需求书</span>
+              <span>&gt;</span>
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
