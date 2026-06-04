@@ -3,7 +3,7 @@ import {
   MapPin, Search, School, Navigation, X, Check, ArrowLeft, Loader,
   ChevronDown, SlidersHorizontal, Sparkles, DollarSign, Clock, Compass, 
   User, Map, ListFilter, Copy, RotateCcw, Info, ExternalLink, Eye, 
-  Volume2, CheckCircle2, ChevronRight, Phone
+  Volume2, CheckCircle2, ChevronRight, Phone, BookOpen
 } from 'lucide-react';
 
 import { Order, Landmark, FilterState, AdvancedFilterState, TravelMode, NavigationResult } from './types';
@@ -186,8 +186,8 @@ export default function App() {
     } catch (e) {
       console.error('Failed to parse cached landmark:', e);
     }
-    // Default to Tongji Siping campus as defined in document's design mockup
-    return SHANGHAI_UNIVERSITIES.find(u => u.id === 'tongji_sp') || SHANGHAI_UNIVERSITIES[0];
+    // 不再预设默认地标，让用户首次使用时自行设置
+    return null;
   });
 
   // Keep persistent state of bound landmark
@@ -281,6 +281,9 @@ export default function App() {
   // WeChat contact modal states
   const [isWeChatModalOpen, setIsWeChatModalOpen] = useState(false);
   const [copyFeedback, setCopyFeedback] = useState(false);
+  
+  // Mobile order detail modal state
+  const [isMobileDetailModalOpen, setIsMobileDetailModalOpen] = useState(false);
 
   // Map settings state (panning/zooming offsets on our rich visual vector map)
   const [mapScale, setMapScale] = useState(1.1);
@@ -636,30 +639,32 @@ export default function App() {
   }
 
   return (
-    <div className="w-[1024px] h-[768px] bg-[#F8F9FA] flex flex-col font-sans overflow-hidden text-[#1A1A1A] relative select-none">
+    <div className="w-full h-screen md:w-[1024px] md:h-[768px] bg-[#F8F9FA] flex flex-col font-sans overflow-hidden text-[#1A1A1A] relative select-none mx-auto">
       
       {/* 2. Top Header and Tutors Statistics */}
-      <header className="h-14 bg-white border-b border-gray-200 flex items-center justify-between px-6 shrink-0 z-20 shadow-sm">
+      <header className="h-14 bg-white border-b border-gray-200 flex items-center justify-between px-4 md:px-6 shrink-0 z-20 shadow-sm">
         <div id="company-logo-group" className="flex items-center gap-2">
-          <div className="w-8 h-8 bg-orange-500 rounded-md flex items-center justify-center text-white font-bold text-base tracking-wider shadow-sm">J2</div>
+          <div className="w-8 h-8 bg-orange-500 rounded-md flex items-center justify-center text-white font-bold text-base tracking-wider shadow-sm">
+            <BookOpen className="w-5 h-5" />
+          </div>
           <div className="flex flex-col">
             <h1 className="text-sm font-bold tracking-tight text-neutral-800 flex items-center gap-1.5">
-              家教教员接单平台 
+              心仪单请联系小德：Ken06103
               <span className="text-[10px] bg-red-50 text-red-600 font-semibold px-1 rounded font-mono">上海端 V1.0</span>
             </h1>
-            <span className="text-[10px] text-gray-400 font-mono tracking-tight">www.jiajiao2.site</span>
           </div>
         </div>
 
-        {/* Announcement sliding wire */}
-        <div className="flex-1 max-w-[280px] mx-4 overflow-hidden bg-orange-50/50 border border-orange-100/40 px-2 py-0.5 rounded flex items-center gap-1">
+        {/* Announcement sliding wire - PC only */}
+        <div className="hidden md:flex flex-1 max-w-[280px] mx-4 overflow-hidden bg-orange-50/50 border border-orange-100/40 px-2 py-0.5 rounded items-center gap-1">
           <Volume2 className="w-3 h-3 text-orange-600 shrink-0" />
           <div className="text-[10px] text-orange-850 font-medium truncate animate-pulse">
             {announcement}
           </div>
         </div>
 
-        <div className="flex gap-6 text-xs font-medium">
+        {/* Stats - PC only */}
+        <div className="hidden md:flex gap-6 text-xs font-medium">
           <div className="flex flex-col items-end">
             <span className="text-gray-400 text-[10px]">今日新增订单</span>
             <span className="text-[#ff7823] font-bold text-sm leading-none mt-0.5 font-mono">+{stats.todayAdded}</span>
@@ -673,11 +678,20 @@ export default function App() {
             <span className="text-neutral-900 font-bold text-sm leading-none mt-0.5 font-mono">12,804</span>
           </div>
         </div>
+        
+        {/* Mobile stats indicator */}
+        <div className="md:hidden flex items-center gap-2 text-xs">
+          <span className="text-[#ff7823] font-bold">+{stats.todayAdded}</span>
+          <span className="text-gray-400">|</span>
+          <span className="text-neutral-900 font-bold">{stats.totalOrders}单</span>
+        </div>
       </header>
 
       {/* 3. Main Multi-conditions Filter section */}
-      <nav className="bg-white px-6 py-2.5 border-b border-gray-200 flex flex-col gap-2 shrink-0 z-10 shadow-sm">
-        <div className="flex items-center justify-between gap-3">
+      <nav className="bg-white px-4 md:px-6 py-2.5 border-b border-gray-200 flex flex-col gap-2 shrink-0 z-10 shadow-sm">
+        
+        {/* PC Layout: Horizontal */}
+        <div className="hidden md:flex items-center justify-between gap-3">
           
           {/* Dropdown Filters Block */}
           <div className="flex gap-1.5 shrink-0 relative">
@@ -997,8 +1011,8 @@ export default function App() {
 
         </div>
 
-        {/* 4. Active Location Binding and Advanced Parameters Indicators row */}
-        <div className="flex items-center justify-between border-t border-gray-100 pt-1.5 mt-0.5 text-[10px] text-gray-500 font-sans">
+        {/* 4. Active Location Binding - PC only */}
+        <div className="hidden md:flex items-center justify-between border-t border-gray-100 pt-1.5 mt-0.5 text-[10px] text-gray-500 font-sans">
           <div className="flex items-center gap-2">
             <span className="bg-gray-200 text-gray-700 px-1.5 py-0.5 rounded text-[9px] font-semibold shrink-0 uppercase tracking-wider">首选授课起点</span>
             {currentLandmark ? (
@@ -1007,7 +1021,7 @@ export default function App() {
                 <span className="font-semibold text-gray-700 truncate max-w-[280px]">
                   {currentLandmark.name}
                 </span>
-                <span className="text-gray-400 font-mono hidden md:inline truncate max-w-[140px] ml-1">({currentLandmark.address})</span>
+                <span className="text-gray-400 font-mono truncate max-w-[140px] ml-1">({currentLandmark.address})</span>
               </div>
             ) : (
               <span className="text-red-500 font-semibold">未绑定授课起点，无法测量通勤距离!</span>
@@ -1032,6 +1046,217 @@ export default function App() {
           </div>
         </div>
 
+        {/* Mobile Layout: Vertical */}
+        <div className="md:hidden flex flex-col gap-2">
+          {/* Dropdown filters row */}
+          <div className="flex gap-1.5 relative flex-wrap">
+            {/* DISTRICT DROPDOWN */}
+            <div className="relative">
+              <button
+                onClick={() => {
+                  setIsDistrictDropdownOpen(!isDistrictDropdownOpen);
+                  setIsGradeDropdownOpen(false);
+                  setIsSubjectDropdownOpen(false);
+                  setTempDistricts(selectedDistricts);
+                }}
+                className={`px-2 py-1.5 border rounded text-xs flex items-center justify-between gap-1 font-medium ${
+                  selectedDistricts.length > 0 
+                    ? 'border-orange-500 bg-orange-50/30 text-orange-700' 
+                    : 'bg-gray-50 border-gray-200 text-gray-700'
+                }`}
+              >
+                <span>{selectedDistricts.length === 0 ? '地区' : `地区(${selectedDistricts.length})`}</span>
+                <ChevronDown className="w-3 h-3 text-gray-400" />
+              </button>
+
+              {isDistrictDropdownOpen && (
+                <div className="absolute top-8 left-0 w-64 bg-white border border-gray-200 rounded-xl shadow-xl p-4 z-50">
+                  <div className="flex justify-between items-center mb-2 border-b border-gray-100 pb-2">
+                    <label className="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={tempDistricts.length === SHANGHAI_DISTRICTS.length}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setTempDistricts([...SHANGHAI_DISTRICTS]);
+                          } else {
+                            setTempDistricts([]);
+                          }
+                        }}
+                        className="rounded text-orange-500 focus:ring-orange-400 border-gray-300 w-3.5 h-3.5"
+                      />
+                      <span>全选</span>
+                    </label>
+                    <span className="text-[10px] text-gray-400">上海市行政区</span>
+                  </div>
+                  
+                  <div className="grid grid-cols-3 gap-1.5 max-h-44 overflow-y-auto mb-3">
+                    {SHANGHAI_DISTRICTS.map((item) => {
+                      const isChecked = tempDistricts.includes(item);
+                      return (
+                        <button
+                          key={item}
+                          onClick={() => toggleTempDistrict(item)}
+                          className={`py-1 text-center rounded text-[11px] font-sans border transition-all truncate px-1 ${
+                            isChecked
+                              ? 'bg-orange-500 text-white border-orange-500 font-semibold'
+                              : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'
+                          }`}
+                        >
+                          {item.replace('区', '').replace('新区', '')}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <div className="flex justify-end gap-2 border-t border-gray-100 pt-2">
+                    <button onClick={handleDistrictReset} className="px-2 py-1 text-[11px] font-semibold text-gray-500 border border-gray-200 rounded">重置</button>
+                    <button onClick={handleDistrictConfirm} className="px-3 py-1 text-[11px] font-semibold bg-orange-500 text-white rounded">确定</button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* GRADE DROPDOWN */}
+            <div className="relative">
+              <button
+                onClick={() => {
+                  setIsGradeDropdownOpen(!isGradeDropdownOpen);
+                  setIsDistrictDropdownOpen(false);
+                  setIsSubjectDropdownOpen(false);
+                  setTempGrades(selectedGrades);
+                }}
+                className={`px-2 py-1.5 border rounded text-xs flex items-center justify-between gap-1 font-medium ${
+                  selectedGrades.length > 0
+                    ? 'border-orange-500 bg-orange-50/30 text-orange-700'
+                    : 'bg-gray-50 border-gray-200 text-gray-700'
+                }`}
+              >
+                <span>{selectedGrades.length === 0 ? '年级' : `年级(${selectedGrades.length})`}</span>
+                <ChevronDown className="w-3 h-3 text-gray-400" />
+              </button>
+
+              {isGradeDropdownOpen && (
+                <div className="absolute top-8 left-0 w-52 bg-white border border-gray-200 rounded-xl shadow-xl p-4 z-50">
+                  <div className="grid grid-cols-2 gap-1.5 mb-3">
+                    {GRADES.map((item) => {
+                      const isChecked = tempGrades.includes(item);
+                      return (
+                        <button
+                          key={item}
+                          onClick={() => toggleTempGrade(item)}
+                          className={`py-1 rounded text-[11px] text-center border transition-all ${
+                            isChecked
+                              ? 'bg-orange-500 text-white border-orange-500 font-semibold'
+                              : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'
+                          }`}
+                        >
+                          {item}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="flex justify-end gap-2 border-t border-gray-100 pt-2">
+                    <button onClick={handleGradeReset} className="px-2 py-1 text-[11px] text-gray-500 border border-gray-200 rounded">重置</button>
+                    <button onClick={handleGradeConfirm} className="px-3 py-1 text-[11px] bg-orange-500 text-white rounded font-semibold">确定</button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* SUBJECT DROPDOWN */}
+            <div className="relative">
+              <button
+                onClick={() => {
+                  setIsSubjectDropdownOpen(!isSubjectDropdownOpen);
+                  setIsDistrictDropdownOpen(false);
+                  setIsGradeDropdownOpen(false);
+                  setTempSubjects(selectedSubjects);
+                }}
+                className={`px-2 py-1.5 border rounded text-xs flex items-center justify-between gap-1 font-medium ${
+                  selectedSubjects.length > 0
+                    ? 'border-orange-500 bg-orange-50/30 text-orange-700'
+                    : 'bg-gray-50 border-gray-200 text-gray-700'
+                }`}
+              >
+                <span>{selectedSubjects.length === 0 ? '科目' : `科目(${selectedSubjects.length})`}</span>
+                <ChevronDown className="w-3 h-3 text-gray-400" />
+              </button>
+
+              {isSubjectDropdownOpen && (
+                <div className="absolute top-8 left-0 w-64 bg-white border border-gray-200 rounded-xl shadow-xl p-4 z-50">
+                  <div className="grid grid-cols-3 gap-1.5 max-h-44 overflow-y-auto mb-3">
+                    {SUBJECTS.map((item) => {
+                      const isChecked = tempSubjects.includes(item);
+                      return (
+                        <button
+                          key={item}
+                          onClick={() => toggleTempSubject(item)}
+                          className={`py-1 text-center rounded text-[11px] border transition-all ${
+                            isChecked
+                              ? 'bg-orange-500 text-white border-orange-500 font-semibold'
+                              : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'
+                          }`}
+                        >
+                          {item}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="flex justify-end gap-2 border-t border-gray-100 pt-2">
+                    <button onClick={handleSubjectReset} className="px-2 py-1 text-[11px] text-gray-500 border border-gray-200 rounded">重置</button>
+                    <button onClick={handleSubjectConfirm} className="px-3 py-1 text-[11px] bg-orange-500 text-white rounded font-semibold">确定</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Search Box */}
+          <div className="relative">
+            <input
+              type="text"
+              placeholder="输入关键词检索"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-8 pr-4 py-2 bg-gray-100 border-none rounded text-xs focus:ring-1.5 focus:ring-orange-500 focus:bg-white text-gray-800 placeholder-gray-400 focus:outline-none"
+            />
+            <Search className="w-4 h-4 absolute left-2.5 top-2.5 text-gray-400" />
+            {searchQuery && (
+              <button onClick={() => setSearchQuery('')} className="absolute right-2.5 top-2 text-gray-400 hover:text-gray-600 p-0.5 rounded-full">
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+
+          {/* Quick Filter Tags */}
+          <div className="flex flex-wrap items-center gap-1">
+            <button onClick={() => setTagOnline(!tagOnline)} className={`px-3 py-1.5 rounded-full text-[10px] font-semibold transition-all ${tagOnline ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>线上</button>
+            <button onClick={() => setTagCollege(!tagCollege)} className={`px-3 py-1.5 rounded-full text-[10px] font-semibold transition-all ${tagCollege ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>大学生</button>
+            <button onClick={() => setTagHighPrice(!tagHighPrice)} className={`px-3 py-1.5 border rounded-full text-[10px] font-semibold transition-all flex items-center gap-0.5 ${tagHighPrice ? 'bg-orange-500 text-white border-orange-500' : 'bg-orange-50/60 text-orange-600 border border-orange-200'}`}>高价单 🔥</button>
+            <button onClick={handleOpenAdvancedModal} className="px-3 py-1.5 bg-gray-800 text-white rounded-full text-[10px] font-semibold hover:bg-gray-900 transition-colors flex items-center gap-1 shadow-sm">
+              <SlidersHorizontal className="w-3 h-3" />
+              <span>高级</span>
+            </button>
+            {(selectedDistricts.length > 0 || selectedGrades.length > 0 || selectedSubjects.length > 0 || searchQuery || tagOnline || tagCollege || tagHighPrice) && (
+              <button onClick={handleResetAllFilters} className="p-1 text-gray-400 hover:text-red-500 transition-colors rounded hover:bg-gray-100">
+                <RotateCcw className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+
+          {/* Mobile Location Indicator */}
+          <div className="flex items-center gap-1 border-t border-gray-100 pt-1.5 text-[10px] text-gray-500 flex-wrap">
+            <span className="bg-gray-200 text-gray-700 px-1.5 py-0.5 rounded text-[9px] font-semibold shrink-0">起点</span>
+            {currentLandmark ? (
+              <span className="font-semibold text-gray-700 truncate">{currentLandmark.name}</span>
+            ) : (
+              <span className="text-red-500 font-semibold">未绑定!</span>
+            )}
+            <button onClick={() => setIsLandmarkModalOpen(true)} className="text-blue-600 hover:text-blue-800 font-bold ml-1">修改</button>
+          </div>
+        </div>
+
       </nav>
 
       {/* 5. Main Canvas Split Workspace */}
@@ -1041,8 +1266,8 @@ export default function App() {
         {activeTab === 'list' ? (
           <div className="flex-1 flex overflow-hidden">
             
-            {/* LEFT SIDE: ORDER LISTS (60% width - 600px width constraint) */}
-            <section className="w-[580px] border-r border-gray-200 overflow-y-auto bg-gray-50 flex flex-col gap-2.5 p-3 shrink-0 scroll-smooth">
+            {/* LEFT SIDE: ORDER LISTS - PC 60% width, Mobile full width */}
+            <section className="md:w-[60%] md:border-r md:border-gray-200 w-full overflow-y-auto bg-gray-50 flex flex-col gap-2.5 p-3 md:shrink-0 scroll-smooth">
               
               <div className="flex justify-between items-center px-1 mb-0.5 select-none shrink-0">
                 <div className="text-[10px] text-gray-400 font-mono">
@@ -1092,10 +1317,16 @@ export default function App() {
                     <div
                       key={order.id}
                       id={`order-card-${order.id}`}
-                      onClick={() => setSelectedOrderId(order.id)}
+                      onClick={() => {
+                        setSelectedOrderId(order.id);
+                        // Mobile: open detail modal
+                        if (window.innerWidth < 768) {
+                          setIsMobileDetailModalOpen(true);
+                        }
+                      }}
                       className={`bg-white p-3.5 rounded-lg border transition-all cursor-pointer select-none group relative ${
                         isActive
-                          ? 'border-2 border-orange-500 shadow-md transform scale-[1.005]'
+                          ? 'border-2 border-orange-500 shadow-md transform md:scale-[1.005]'
                           : 'border-gray-200 hover:border-gray-300 hover:shadow-sm'
                       }`}
                     >
@@ -1158,7 +1389,7 @@ export default function App() {
                             {order.contactTeacher[0]}
                           </div>
                           <span className="text-[11px] text-gray-550 font-medium">
-                            {order.contactTeacher} (对接老师)
+                            小德 (对接老师)
                           </span>
                         </div>
                         <button 
@@ -1179,8 +1410,8 @@ export default function App() {
 
             </section>
 
-            {/* RIGHT SIDE: ORDER DETAIL PANEL (40% width - remains fully responsive) */}
-            <section className="flex-1 bg-white flex flex-col overflow-hidden relative">
+            {/* RIGHT SIDE: ORDER DETAIL PANEL - PC only, 40% width */}
+            <section className="hidden md:flex md:w-[40%] bg-white flex-col overflow-hidden relative">
               
               {selectedOrder ? (
                 <div className="flex-1 flex flex-col overflow-hidden">
@@ -1759,7 +1990,7 @@ export default function App() {
             
             {/* Header */}
             <div className="px-5 py-3 border-b border-gray-150 bg-gray-50 flex justify-between items-center text-xs font-bold leading-none select-none text-gray-700">
-              <span>扫码添加对接老师专属微信</span>
+              <span>扫码添加小德专属微信</span>
               <button 
                 onClick={() => setIsWeChatModalOpen(false)}
                 className="p-1 rounded-full text-gray-400 hover:bg-gray-200 transition-colors"
@@ -1777,56 +2008,23 @@ export default function App() {
               </div>
 
               <h4 className="font-bold text-gray-800 text-sm mt-3 leading-tight">
-                {selectedOrder.contactTeacher}老师专属直招通道
+                小德专属直招通道
               </h4>
               <p className="text-[10px] text-gray-400 mt-1">
                 请截屏或拿出手机直接扫描下方微信二维码添加
               </p>
 
-              {/* FAKED HIGH QUALITY VECTOR WECHAT QR CODE */}
-              <div className="w-40 h-40 border-2 border-orange-100 rounded-md my-4 p-2.5 bg-neutral-50 relative flex flex-col items-center justify-center select-none shadow-inner">
-                
-                {/* Visual alignment frames */}
-                <div className="absolute top-1 left-1 w-3 h-3 border-t-2 border-l-2 border-orange-500" />
-                <div className="absolute top-1 right-1 w-3 h-3 border-t-2 border-r-2 border-orange-500" />
-                <div className="absolute bottom-1 left-1 w-3 h-3 border-b-2 border-l-2 border-orange-500" />
-                <div className="absolute bottom-1 right-1 w-3 h-3 border-b-2 border-r-2 border-orange-500" />
-
-                {/* QR Grid illustration */}
-                <div className="grid grid-cols-5 gap-2 w-full h-full opacity-80">
-                  <div className="bg-neutral-900 rounded" />
-                  <div className="bg-neutral-900 rounded" />
-                  <div className="bg-neutral-50" />
-                  <div className="bg-neutral-900 rounded" />
-                  <div className="bg-neutral-900 rounded" />
-
-                  <div className="bg-neutral-900 rounded" />
-                  <div className="bg-neutral-50" />
-                  <div className="bg-neutral-900 rounded" />
-                  <div className="bg-neutral-50" />
-                  <div className="bg-neutral-900 rounded" />
-
-                  <div className="bg-neutral-50" />
-                  <div className="bg-neutral-900 rounded-full" />
-                  {/* Center tutor profile mini photo */}
-                  <div className="bg-orange-500 rounded flex items-center justify-center w-full h-full text-[10px] text-white font-extrabold select-none shadow-sm">J2</div>
-                  <div className="bg-neutral-900 rounded" />
-                  <div className="bg-neutral-50" />
-
-                  <div className="bg-neutral-900 rounded" />
-                  <div className="bg-white" />
-                  <div className="bg-neutral-900 rounded" />
-                  <div className="bg-neutral-905 rounded" />
-                  <div className="bg-neutral-900 rounded" />
-
-                  <div className="bg-neutral-900 rounded" />
-                  <div className="bg-neutral-900 rounded" />
-                  <div className="bg-neutral-50" />
-                  <div className="bg-neutral-900 rounded" />
-                  <div className="bg-neutral-900 rounded" />
-                </div>
-
-                <div className="absolute inset-0 bg-white/5 backdrop-blur-[0.5px] pointer-events-none" />
+              {/* WECHAT QR CODE */}
+              <div className="w-48 h-48 border-2 border-orange-100 rounded-md my-4 p-2 bg-neutral-50 relative flex flex-col items-center justify-center select-none shadow-inner overflow-hidden">
+                <img 
+                  src="/wechat-qr.png" 
+                  alt="小德微信二维码" 
+                  className="w-full h-full object-contain"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).style.display = 'none';
+                    (e.target as HTMLImageElement).parentElement!.innerHTML = '<div class="flex items-center justify-center w-full h-full text-gray-400 text-xs">请添加 wechat-qr.png 图片</div>';
+                  }}
+                />
               </div>
 
               {/* Text WeChat ID list for manual copy */}
@@ -1854,6 +2052,142 @@ export default function App() {
 
             </div>
 
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 5: MOBILE ORDER DETAIL FULLSCREEN POPUP */}
+      {isMobileDetailModalOpen && selectedOrder && (
+        <div className="fixed inset-0 z-50 bg-white flex flex-col md:hidden">
+          {/* Header */}
+          <div className="h-14 bg-white border-b border-gray-200 flex items-center justify-between px-4 shrink-0">
+            <button
+              onClick={() => setIsMobileDetailModalOpen(false)}
+              className="p-2 text-gray-600 hover:text-gray-900"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+            <h2 className="text-sm font-bold text-gray-900">订单详情</h2>
+            <span className="px-2 py-0.5 bg-emerald-50 border border-emerald-200 text-emerald-700 text-[10px] font-bold rounded-full animate-pulse">
+              正在招生 ⚡
+            </span>
+          </div>
+
+          {/* Content */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+            {/* Subject info */}
+            <div className="flex items-start gap-3 bg-neutral-50 p-3 rounded-xl border border-gray-100">
+              <div className="w-10 h-10 bg-orange-100 text-orange-600 rounded-lg flex items-center justify-center text-lg shrink-0">
+                📚
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="text-[10px] text-gray-400 font-semibold">辅导科目 / 学段年级</div>
+                <div className="text-sm font-bold text-neutral-800 mt-0.5 flex items-center gap-1.5">
+                  <span>{selectedOrder.district} {selectedOrder.grade} {selectedOrder.subject}</span>
+                  {selectedOrder.isOnline && (
+                    <span className="bg-blue-50 text-blue-600 text-[9px] px-1 rounded border border-blue-200 font-medium">全线上</span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Price & Distance */}
+            <div className="grid grid-cols-2 gap-3 border-y border-gray-100 py-3">
+              <div>
+                <div className="text-[9px] text-gray-400 font-bold uppercase">课时费用</div>
+                <div className="text-lg font-black text-orange-600 mt-1 flex items-baseline">
+                  {selectedOrder.isNegotiable ? (
+                    <span className="text-sm font-bold text-teal-600">教员协商报价</span>
+                  ) : (
+                    <>
+                      <span className="text-xs font-semibold">¥</span>
+                      <span className="text-xl">{selectedOrder.price}</span>
+                      <span className="text-xs text-gray-450 ml-1">/小时</span>
+                    </>
+                  )}
+                </div>
+              </div>
+              <div>
+                <div className="text-[9px] text-gray-400 font-bold uppercase">预估距离</div>
+                <div className="text-xs font-semibold text-neutral-800 mt-1.5">
+                  {currentLandmark ? (
+                    selectedOrder.isOnline ? (
+                      <span className="text-emerald-600 font-bold">免通勤</span>
+                    ) : (
+                      <span>{getDistance(currentLandmark.coordinate.lat, currentLandmark.coordinate.lng, selectedOrder.coordinate.lat, selectedOrder.coordinate.lng)}km</span>
+                    )
+                  ) : (
+                    <span className="text-red-500 font-semibold text-[10px]" onClick={() => { setIsMobileDetailModalOpen(false); setIsLandmarkModalOpen(true); }}>请先设置地标</span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Student info */}
+            <div className="space-y-1">
+              <h4 className="text-[10px] font-bold text-gray-400 uppercase">学生学习基础</h4>
+              <div className="bg-neutral-50 px-3 py-2.5 rounded-lg text-[11px] leading-relaxed text-gray-700 border border-neutral-100">
+                <p className="font-semibold mb-1">{selectedOrder.studentDesc}</p>
+                <p className="text-gray-600">{selectedOrder.studentDetail}</p>
+              </div>
+            </div>
+
+            {/* Frequency & Address */}
+            <div className="grid grid-cols-1 gap-3">
+              <div>
+                <h4 className="text-[10px] font-bold text-gray-400 uppercase mb-1">上课频次</h4>
+                <div className="bg-neutral-50 px-2.5 py-2 rounded text-[11px] font-medium text-gray-750 border border-neutral-100 flex items-center gap-1">
+                  <Clock className="w-3.5 h-3.5 text-orange-500 shrink-0" />
+                  <span>{selectedOrder.frequency}</span>
+                </div>
+              </div>
+              <div>
+                <h4 className="text-[10px] font-bold text-gray-400 uppercase mb-1">授课地点</h4>
+                <div className="bg-neutral-50 px-2.5 py-2 rounded text-[11px] font-medium text-gray-750 border border-neutral-100 flex items-center gap-1">
+                  <MapPin className="w-3.5 h-3.5 text-red-500 shrink-0" />
+                  <span>{selectedOrder.address}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Requirements */}
+            <div className="space-y-1">
+              <h4 className="text-[10px] font-bold text-gray-400 uppercase">教员要求</h4>
+              <ul className="bg-blue-50/50 border border-blue-100/50 p-3 rounded-lg text-[11px] text-blue-900 leading-relaxed">
+                <li className="flex items-start gap-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-blue-600 shrink-0 mt-0.5" />
+                  <span>{selectedOrder.requirements}</span>
+                </li>
+              </ul>
+            </div>
+          </div>
+
+          {/* Footer buttons */}
+          <div className="p-4 bg-gray-50 border-t border-gray-200 flex gap-2.5 shrink-0">
+            <button
+              onClick={() => {
+                if (!currentLandmark) {
+                  setIsLandmarkModalOpen(true);
+                  return;
+                }
+                setIsMobileDetailModalOpen(false);
+                setIsNavigating(true);
+              }}
+              className="flex-1 py-2.5 bg-white border border-gray-300 rounded font-bold text-xs flex items-center justify-center gap-1.5 text-gray-700"
+            >
+              <Navigation className="w-3.5 h-3.5 text-blue-500" />
+              <span>查看路线</span>
+            </button>
+            <button
+              onClick={() => {
+                setIsMobileDetailModalOpen(false);
+                setIsWeChatModalOpen(true);
+              }}
+              className="flex-1 py-2.5 bg-orange-500 text-white rounded font-bold text-xs flex items-center justify-center gap-1.5"
+            >
+              <Phone className="w-3.5 h-3.5" />
+              <span>添加微信领单</span>
+            </button>
           </div>
         </div>
       )}
