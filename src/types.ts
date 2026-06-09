@@ -14,7 +14,8 @@ export interface Order {
   frequency: string;
   address: string;
   requirements: string;
-  price: number; // hourly rate
+  price: number; // hourly rate (for sorting/comparison)
+  priceText: string; // Original price display text (e.g., "150元/h", "3000元/月")
   isHighPrice: boolean;
   isOnline: boolean;
   isCollegeStudent: boolean;

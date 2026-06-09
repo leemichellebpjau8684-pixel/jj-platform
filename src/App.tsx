@@ -1,9 +1,10 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { 
   MapPin, Search, School, Navigation, X, Check, ArrowLeft, Loader,
   ChevronDown, SlidersHorizontal, Sparkles, DollarSign, Clock, Compass, 
   User, Map, ListFilter, Copy, RotateCcw, Info, ExternalLink, Eye, 
-  Volume2, CheckCircle2, ChevronRight, Phone, BookOpen, HelpCircle
+  Volume2, CheckCircle2, ChevronRight, Phone, BookOpen, HelpCircle,
+  Heart, Star, Trash2, Filter, ArrowUpDown
 } from 'lucide-react';
 
 import { Order, Landmark, FilterState, AdvancedFilterState, TravelMode, NavigationResult } from './types';
@@ -217,8 +218,58 @@ export default function App() {
     }
   }, [currentLandmark]);
 
-  const [activeTab, setActiveTab] = useState<'list' | 'map'>('list'); // 'list' = "找家教", 'map' = "附近家教"
-  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(orders[0]?.id || null);
+  const [activeTab, setActiveTab] = useState<'list' | 'map' | 'favorites'>('list'); // 'list' = "找家教", 'map' = "附近家教", 'favorites' = "我的"
+  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
+  const prevActiveTabRef = useRef<string>(activeTab);
+
+  // Favorites management - store complete order data
+  const [favoriteOrdersData, setFavoriteOrdersData] = useState<Order[]>(() => {
+    try {
+      const cached = localStorage.getItem('jiajiao_favorites_data');
+      if (cached) {
+        return JSON.parse(cached);
+      }
+    } catch (e) {}
+    return [];
+  });
+
+  // Persist favorites to localStorage
+  useEffect(() => {
+    localStorage.setItem('jiajiao_favorites_data', JSON.stringify(favoriteOrdersData));
+  }, [favoriteOrdersData]);
+
+  // Toggle favorite status - store complete order data
+  const toggleFavorite = (order: Order) => {
+    setFavoriteOrdersData(prev => {
+      const exists = prev.find(o => o.id === order.id);
+      if (exists) {
+        return prev.filter(o => o.id !== order.id);
+      } else {
+        return [...prev, order];
+      }
+    });
+  };
+
+  // Check if order is favorited
+  const isFavorited = (orderId: string) => favoriteOrdersData.some(o => o.id === orderId);
+
+  // Get favorited orders - use stored data directly
+  const favoriteOrders = useMemo(() => {
+    return favoriteOrdersData;
+  }, [favoriteOrdersData]);
+
+  // Get favorite IDs for display
+  const favoriteIds = useMemo(() => {
+    return favoriteOrdersData.map(o => o.id);
+  }, [favoriteOrdersData]);
+
+  // Clear selected order when switching to favorites tab to prevent auto-opening modal
+  useEffect(() => {
+    if (prevActiveTabRef.current !== 'favorites' && activeTab === 'favorites') {
+      setSelectedOrderId(null);
+    }
+    prevActiveTabRef.current = activeTab;
+  }, [activeTab]);
 
   // Geocode all order addresses upon startup to match Shanghai's precise coordinates
   useEffect(() => {
@@ -280,13 +331,16 @@ export default function App() {
   const [isAdvancedModalOpen, setIsAdvancedModalOpen] = useState(false);
   const [advancedFilters, setAdvancedFilters] = useState<AdvancedFilterState>({
     maxDistance: 20, // defaults to 20 km search radius as per user story
-    minHourlyRate: 80, // default min rate
+    minHourlyRate: 10, // default min rate (show all orders by default)
     includeUnpriced: false // hide unpriced (price=0) default
   });
 
   // Temporary container for advanced filter modifications
   const [tempAdvancedFilters, setTempAdvancedFilters] = useState<AdvancedFilterState>({ ...advancedFilters });
   const [advancedInputErrors, setAdvancedInputErrors] = useState<{ maxDistance?: string; minHourlyRate?: string }>({});
+
+  // Sort mode state
+  const [sortMode, setSortMode] = useState<'distance' | 'price'>('distance');
 
   // Landmark Selection Modal toggler
   const [isLandmarkModalOpen, setIsLandmarkModalOpen] = useState(false);
@@ -299,6 +353,7 @@ export default function App() {
   // WeChat contact modal states
   const [isWeChatModalOpen, setIsWeChatModalOpen] = useState(false);
   const [copyFeedback, setCopyFeedback] = useState(false);
+  const [isQRCodeLoaded, setIsQRCodeLoaded] = useState(false);
   
   // Mobile order detail modal state
   const [isMobileDetailModalOpen, setIsMobileDetailModalOpen] = useState(false);
@@ -380,7 +435,13 @@ export default function App() {
 
       return true;
     }).sort((a, b) => {
-      // Sort nearest first if landmark is defined
+      if (sortMode === 'price') {
+        // Sort by hourly rate high to low
+        const priceA = a.isNegotiable ? 0 : a.price;
+        const priceB = b.isNegotiable ? 0 : b.price;
+        return priceB - priceA;
+      }
+      // Sort by distance (default) - nearest first if landmark is defined
       if (currentLandmark) {
         const distA = a.isOnline ? 0 : getDistance(currentLandmark.coordinate.lat, currentLandmark.coordinate.lng, a.coordinate.lat, a.coordinate.lng);
         const distB = b.isOnline ? 0 : getDistance(currentLandmark.coordinate.lat, currentLandmark.coordinate.lng, b.coordinate.lat, b.coordinate.lng);
@@ -388,24 +449,29 @@ export default function App() {
       }
       return 0; // retain database natural seed ordering
     });
-  }, [orders, selectedDistricts, selectedGrades, selectedSubjects, tagOnline, tagCollege, tagHighPrice, queryTerms, advancedFilters, currentLandmark]);
+  }, [orders, selectedDistricts, selectedGrades, selectedSubjects, tagOnline, tagCollege, tagHighPrice, queryTerms, advancedFilters, currentLandmark, sortMode]);
 
-  // Selected Order object reference
+  // Selected Order object reference - search from both orders and favorites
   const selectedOrder = useMemo(() => {
-    const found = orders.find(o => o.id === selectedOrderId);
-    if (found) return found;
-    return filteredOrders[0] || null;
-  }, [selectedOrderId, filteredOrders, orders]);
+    if (!selectedOrderId) return null;
+    // First try to find in current orders list
+    const orderFromList = orders.find(o => o.id === selectedOrderId);
+    if (orderFromList) return orderFromList;
+    // If not found in orders, try to find in favorites
+    return favoriteOrdersData.find(o => o.id === selectedOrderId) || null;
+  }, [selectedOrderId, orders, favoriteOrdersData]);
 
   // Keep selected order active ID fresh when list changes
   useEffect(() => {
-    if (filteredOrders.length > 0) {
+    // Only auto-clear when list becomes empty, don't auto-select first order
+    if (filteredOrders.length === 0) {
+      setSelectedOrderId(null);
+    } else if (selectedOrderId) {
+      // If user had selected an order but it's no longer in the list, clear selection
       const containsSelected = filteredOrders.some(o => o.id === selectedOrderId);
       if (!containsSelected) {
-        setSelectedOrderId(filteredOrders[0].id);
+        setSelectedOrderId(null);
       }
-    } else {
-      setSelectedOrderId(null);
     }
   }, [filteredOrders, selectedOrderId]);
 
@@ -671,20 +737,66 @@ export default function App() {
         {/* Text content - centered */}
         <div className="relative text-center">
           <p className="text-red-600 text-sm font-bold leading-relaxed mb-1">
-            欢迎使用家教订单查询系统（*点击订单右下角图标，体验新增导航功能）
+            欢迎使用家教订单查询系统（点击小红心，体验收藏心仪家教新功能~）
           </p>
           <p className="text-gray-700 text-xs leading-relaxed mb-2">
-            点击右上角 <span className="inline-block w-5 h-5 bg-white rounded-full text-center text-gray-700 text-[10px] font-bold flex items-center justify-center mx-auto">?</span> 查看帮助视频(3个)，您将学会：
+            来到本平台，您将能够：
           </p>
           <div className="flex justify-center gap-2 mb-2">
-            <span className="bg-orange-500 text-white text-xs px-3 py-1 rounded-full font-semibold">1km内选单</span>
+            <span className="bg-orange-500 text-white text-xs px-3 py-1 rounded-full font-semibold">按薪资、距离选单</span>
             <span className="bg-orange-500 text-white text-xs px-3 py-1 rounded-full font-semibold">地标选定</span>
             <span className="bg-orange-500 text-white text-xs px-3 py-1 rounded-full font-semibold">5秒速推</span>
           </div>
           <p className="text-gray-500 text-xs">
-            点击"我的" 🧑‍🎓 登录或注册开始体验5秒速推
+            点击"左上角" <span className="inline-flex w-5 h-5 bg-orange-500 rounded-full items-center justify-center ring-1 ring-white"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0"></path><circle cx="12" cy="10" r="3"></circle></svg></span> 确认老师位置开始体验5秒找到心仪单的感觉！
           </p>
         </div>
+      </div>
+
+      {/* 3.1 PC Tab Navigation */}
+      <div className="hidden md:flex gap-2 px-6 mb-4">
+        <button
+          onClick={() => {
+            setActiveTab('list');
+            setSelectedMapOrder(null);
+          }}
+          className={`px-5 py-2.5 rounded-lg font-bold text-sm transition-all flex items-center gap-2 ${
+            activeTab === 'list'
+              ? 'bg-orange-500 text-white shadow-md'
+              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+          }`}
+        >
+          <ListFilter className="w-4 h-4" />
+          找家教
+        </button>
+        <button
+          onClick={() => setActiveTab('map')}
+          className={`px-5 py-2.5 rounded-lg font-bold text-sm transition-all flex items-center gap-2 ${
+            activeTab === 'map'
+              ? 'bg-orange-500 text-white shadow-md'
+              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+          }`}
+        >
+          <Map className="w-4 h-4" />
+          附近家教
+        </button>
+        <button
+          onClick={() => {
+            setActiveTab('favorites');
+            setSelectedOrderId(null);
+          }}
+          className={`px-5 py-2.5 rounded-lg font-bold text-sm transition-all flex items-center gap-2 ${
+            activeTab === 'favorites'
+              ? 'bg-orange-500 text-white shadow-md'
+              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+          }`}
+        >
+          <Heart className="w-4 h-4" />
+          我的收藏
+          {favoriteIds.length > 0 && (
+            <span className="bg-red-500 text-white text-xs px-1.5 py-0.5 rounded-full">{favoriteIds.length}</span>
+          )}
+        </button>
       </div>
 
       {/* 4. Stats Cards - PC only */}
@@ -990,14 +1102,27 @@ export default function App() {
             </button>
             <button
               onClick={() => setTagHighPrice(!tagHighPrice)}
-              className={`px-4 py-2.5 border rounded-full text-sm font-semibold transition-all flex items-center gap-0.5 ${
+              className={`px-4 py-2.5 border rounded-full text-sm font-semibold transition-all flex items-center gap-0.5 whitespace-nowrap ${
                 tagHighPrice 
                 ? 'bg-orange-500 text-white border-orange-500' 
                 : 'bg-orange-50/60 text-orange-600 border border-orange-200 hover:bg-orange-100/60'
               }`}
             >
-              高价单 🔥
+              <span className="inline-flex items-center gap-0.5">高价单 🔥</span>
             </button>
+
+            {/* Sort Mode Selector */}
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-gray-500 font-medium">排序方式:</span>
+              <select
+                value={sortMode}
+                onChange={(e) => setSortMode(e.target.value as 'distance' | 'price')}
+                className="px-4 py-2.5 bg-gray-50 text-gray-700 border border-gray-200 rounded-lg text-xs font-medium cursor-pointer hover:bg-gray-100 transition-colors focus:outline-none focus:ring-2 focus:ring-orange-500/50 min-w-[120px] max-w-[160px]"
+              >
+                <option value="distance" className="text-xs">距离近→远</option>
+                <option value="price" className="text-xs">时薪高→低</option>
+              </select>
+            </div>
             
             <button
               id="advanced-filters-trigger"
@@ -1248,18 +1373,18 @@ export default function App() {
                     欢迎使用家教订单查询系统
                   </p>
                   <p className="text-gray-700 text-[10px] leading-relaxed mb-1.5">
-                    (*点击订单右下角图标，体验新增导航功能)
+                    (点击小红心，体验收藏心仪家教新功能~)
                   </p>
                   <p className="text-gray-700 text-[10px] leading-relaxed mb-1.5">
-                    点击右上角 <span className="inline-block w-4 h-4 bg-white rounded-full text-center text-gray-700 text-[8px] font-bold flex items-center justify-center mx-auto">?</span> 查看帮助视频(3个)，您将学会：
+                    来到本平台，您将能够：
                   </p>
                   <div className="flex justify-center gap-1.5 mb-1.5">
-                    <span className="bg-orange-500 text-white text-[9px] px-2.5 py-0.5 rounded-full font-semibold">1km内选单</span>
+                    <span className="bg-orange-500 text-white text-[9px] px-2.5 py-0.5 rounded-full font-semibold">按薪资、距离选单</span>
                     <span className="bg-orange-500 text-white text-[9px] px-2.5 py-0.5 rounded-full font-semibold">地标选定</span>
                     <span className="bg-orange-500 text-white text-[9px] px-2.5 py-0.5 rounded-full font-semibold">5秒速推</span>
                   </div>
                   <p className="text-gray-600 text-[9px]">
-                    点击"我的" 🧑‍🎓 登录或注册开始体验5秒速推
+                    点击"左上角" <span className="inline-flex w-4 h-4 bg-orange-500 rounded-full items-center justify-center ring-1 ring-white"><svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0"></path><circle cx="12" cy="10" r="3"></circle></svg></span> 确认老师位置开始体验5秒找到心仪单的感觉！
                   </p>
                 </div>
               </div>
@@ -1365,11 +1490,25 @@ export default function App() {
                 <div className="flex items-center gap-2">
                   <button onClick={() => setTagOnline(!tagOnline)} className={`flex-1 px-3 py-2 rounded-full text-sm font-semibold transition-all ${tagOnline ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>线上</button>
                   <button onClick={() => setTagCollege(!tagCollege)} className={`flex-1 px-3 py-2 rounded-full text-sm font-semibold transition-all ${tagCollege ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>大学生</button>
-                  <button onClick={() => setTagHighPrice(!tagHighPrice)} className={`flex-1 px-3 py-2 border rounded-full text-sm font-semibold transition-all flex items-center justify-center gap-0.5 ${tagHighPrice ? 'bg-orange-500 text-white border-orange-500' : 'bg-gray-100 text-gray-600 border border-gray-200 hover:bg-gray-200'}`}>高价单 🔥</button>
+                  <button onClick={() => setTagHighPrice(!tagHighPrice)} className={`flex-1 px-3 py-2 border rounded-full text-sm font-semibold transition-all flex items-center justify-center gap-0.5 whitespace-nowrap ${tagHighPrice ? 'bg-orange-500 text-white border-orange-500' : 'bg-gray-100 text-gray-600 border border-gray-200 hover:bg-gray-200'}`}>
+                    <span className="inline-flex items-center gap-0.5">高价单 🔥</span>
+                  </button>
                   <button onClick={handleOpenAdvancedModal} className="flex-1 px-3 py-2 bg-blue-500 text-white rounded-full text-sm font-semibold hover:bg-blue-600 transition-colors flex items-center justify-center gap-1 shadow-sm">
                     <SlidersHorizontal className="w-4 h-4" />
                     <span>高级</span>
                   </button>
+                </div>
+                {/* Sort Mode Selector for Mobile */}
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-gray-500 font-medium">排序方式:</span>
+                  <select
+                    value={sortMode}
+                    onChange={(e) => setSortMode(e.target.value as 'distance' | 'price')}
+                    className="px-4 py-2 bg-gray-50 text-gray-700 border border-gray-200 rounded-lg text-xs font-medium cursor-pointer focus:outline-none focus:ring-2 focus:ring-orange-500/50 min-w-[140px] max-w-[160px]"
+                  >
+                    <option value="distance" className="text-xs">距离近→远</option>
+                    <option value="price" className="text-xs">时薪高→低</option>
+                  </select>
                 </div>
                 {/* Location Info */}
                 <div className="flex items-center gap-2 text-sm">
@@ -1582,7 +1721,7 @@ export default function App() {
                         <div className="flex items-center gap-2 flex-1">
                           <div className="flex items-center gap-2">
                             <span className="text-gray-400 text-xs"> </span>
-                            <span className="text-gray-800 font-bold font-mono text-sm">{order.idLine || order.id}</span>
+                            <span className="text-gray-600 font-bold font-mono text-sm">{order.idLine || order.id}</span>
                           </div>
                           <button 
                             onClick={(e) => {
@@ -1623,18 +1762,37 @@ export default function App() {
                       
                       {/* Price and action */}
                       <div className="flex justify-between items-center pt-3 border-t border-gray-100">
-                        <div className="text-orange-600 font-bold text-xl">
-                          {order.price === 0 ? (
-                            <span className="text-base font-semibold text-emerald-600">老师合理报价</span>
-                          ) : order.isNegotiable ? (
-                            <span className="text-base font-semibold text-emerald-600">教员报价</span>
-                          ) : (
-                            <>
-                              <span className="text-base font-normal">¥</span>
-                              <span className="text-2xl">{order.price}</span>
-                              <span className="text-sm text-gray-500">/h</span>
-                            </>
-                          )}
+                        <div className="flex items-center gap-3">
+                          <div className="text-orange-600 font-bold text-xl">
+                            {order.price === 0 && !order.priceText ? (
+                              <span className="text-base font-semibold text-emerald-600">老师合理报价</span>
+                            ) : order.isNegotiable ? (
+                              <span className="text-base font-semibold text-emerald-600">教员报价</span>
+                            ) : order.priceText ? (
+                              <span className="text-lg">{order.priceText}</span>
+                            ) : (
+                              <>
+                                <span className="text-base font-normal">¥</span>
+                                <span className="text-2xl">{order.price}</span>
+                                <span className="text-sm text-gray-500">/h</span>
+                              </>
+                            )}
+                          </div>
+                          {/* Favorite Button */}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleFavorite(order);
+                            }}
+                            className={`p-2 rounded-full transition-all ${
+                              isFavorited(order.id)
+                                ? 'text-red-500 bg-red-50 hover:bg-red-100'
+                                : 'text-gray-400 hover:text-red-500 hover:bg-red-50'
+                            }`}
+                            title={isFavorited(order.id) ? '取消收藏' : '收藏'}
+                          >
+                            <Heart className={`w-5 h-5 ${isFavorited(order.id) ? 'fill-current' : ''}`} />
+                          </button>
                         </div>
                         <button 
                           onClick={(e) => {
@@ -1705,6 +1863,8 @@ export default function App() {
                         <div className="text-lg font-black text-orange-600 mt-1 tracking-tight flex items-baseline">
                           {selectedOrder.isNegotiable ? (
                             <span className="text-sm font-bold text-teal-600">教员协商报价</span>
+                          ) : selectedOrder.priceText ? (
+                            <span className="text-lg">{selectedOrder.priceText}</span>
                           ) : (
                             <>
                               <span className="text-xs font-semibold mr-0.5 font-mono">¥</span>
@@ -1809,6 +1969,18 @@ export default function App() {
                       <span>添加老师微信领单</span>
                     </button>
 
+                    <button
+                      id="view-favorite-btn"
+                      onClick={() => toggleFavorite(selectedOrder)}
+                      className={`py-2.5 px-3 rounded font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                        isFavorited(selectedOrder.id)
+                          ? 'bg-red-100 text-red-600 hover:bg-red-200'
+                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                      }`}
+                    >
+                      <Heart className={`w-3.5 h-3.5 ${isFavorited(selectedOrder.id) ? 'fill-current' : ''}`} />
+                    </button>
+
                   </div>
 
                 </div>
@@ -1822,7 +1994,7 @@ export default function App() {
             </section>
 
           </div>
-        ) : (
+        ) : activeTab === 'map' ? (
           <ShanghaiRadarMap
             currentLandmark={currentLandmark}
             filteredOrders={filteredOrders}
@@ -1833,6 +2005,251 @@ export default function App() {
             activeTab={activeTab}
             onUpdateLandmark={setCurrentLandmark}
           />
+        ) : (
+          /* VIEW 3: FAVORITES ("我的收藏") */
+          <div className="flex-1 flex flex-col md:flex-row overflow-hidden bg-gray-50">
+            {/* Left: Favorites List */}
+            <section className="md:w-[60%] md:border-r md:border-gray-200 w-full overflow-y-auto flex flex-col gap-2.5 p-3 md:shrink-0 scroll-smooth">
+              
+              {/* Mobile Header */}
+              <div className="md:hidden bg-white px-4 py-3 rounded-xl shadow-sm mb-2 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Heart className="w-5 h-5 text-red-500" />
+                  <span className="font-bold text-gray-800">我的收藏</span>
+                  <span className="bg-red-100 text-red-600 text-xs px-2 py-0.5 rounded-full">{favoriteOrders.length}个</span>
+                </div>
+              </div>
+
+              {/* PC Header */}
+              <div className="hidden md:flex items-center justify-between mb-2">
+                <div className="flex items-center gap-3">
+                  <Heart className="w-6 h-6 text-red-500" />
+                  <h2 className="text-lg font-bold text-gray-800">我的收藏</h2>
+                  <span className="bg-red-100 text-red-600 text-xs px-2 py-0.5 rounded-full">{favoriteOrders.length}个家教单</span>
+                </div>
+                <button
+                  onClick={() => {
+                    if (window.confirm(`确定要清空所有收藏吗？`)) {
+                      setFavoriteOrdersData([]);
+                    }
+                  }}
+                  className="text-xs text-gray-400 hover:text-red-500 flex items-center gap-1"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  清空全部
+                </button>
+              </div>
+
+              {/* Empty State */}
+              {favoriteOrders.length === 0 ? (
+                <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
+                  <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mb-4">
+                    <Heart className="w-10 h-10 text-gray-300" />
+                  </div>
+                  <h3 className="text-base font-bold text-gray-600 mb-2">暂无收藏家教单</h3>
+                  <p className="text-sm text-gray-400 mb-4">点击订单卡片上的爱心图标，即可收藏心仪的家教单</p>
+                  <button
+                    onClick={() => {
+                      setActiveTab('list');
+                      setSelectedOrderId(null);
+                    }}
+                    className="px-5 py-2.5 bg-orange-500 text-white rounded-lg font-bold text-sm hover:bg-orange-600 transition-colors"
+                  >
+                    去浏览家教单
+                  </button>
+                </div>
+              ) : (
+                /* Favorites List */
+                <div className="flex flex-col gap-2">
+                  {favoriteOrders.map((order) => {
+                    const isActive = selectedOrderId === order.id;
+                    const isFav = isFavorited(order.id);
+                    
+                    return (
+                      <div
+                        key={order.id}
+                        onClick={() => setSelectedOrderId(order.id)}
+                        className={`bg-white rounded-xl p-4 cursor-pointer transition-all border ${
+                          isActive 
+                            ? 'border-orange-400 shadow-lg ring-2 ring-orange-100' 
+                            : 'border-gray-100 hover:border-gray-200 hover:shadow-md'
+                        }`}
+                      >
+                        {/* Order Header */}
+                        <div className="flex items-start justify-between mb-2">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="bg-gray-200 text-gray-700 text-xs px-2 py-0.5 rounded font-semibold">{order.district}</span>
+                            <span className="bg-orange-100 text-orange-700 text-xs px-2 py-0.5 rounded font-semibold">{order.grade} · {order.subject}</span>
+                            {order.isOnline && <span className="bg-blue-100 text-blue-700 text-xs px-2 py-0.5 rounded font-semibold">线上</span>}
+                            {order.isHighPrice && <span className="bg-red-100 text-red-600 text-xs px-2 py-0.5 rounded font-semibold">高薪</span>}
+                          </div>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleFavorite(order);
+                            }}
+                            className={`p-1.5 rounded-full transition-colors ${
+                              isFav ? 'text-red-500 bg-red-50' : 'text-gray-400 hover:text-red-500 hover:bg-red-50'
+                            }`}
+                          >
+                            <Heart className={`w-5 h-5 ${isFav ? 'fill-current' : ''}`} />
+                          </button>
+                        </div>
+                        
+                        {/* Student Description */}
+                        <p className="text-sm text-gray-700 mb-2 line-clamp-2">{order.studentDesc}</p>
+                        
+                        {/* Order Meta */}
+                        <div className="flex items-center justify-between text-xs text-gray-500">
+                          <div className="flex items-center gap-3">
+                            <span className="text-orange-600 font-bold">{order.priceText || `${order.price}元/h`}</span>
+                            <span className="flex items-center gap-1">
+                              <MapPin className="w-3 h-3" />
+                              {order.address}
+                            </span>
+                          </div>
+                          <span className="text-gray-400">{order.publishTime}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+
+            {/* Right: Detail Panel - PC only */}
+            <section className="hidden md:flex w-[40%] bg-white overflow-y-auto">
+              {selectedOrder && isFavorited(selectedOrder.id) ? (
+                <div className="flex-1 p-6">
+                  {/* Order Detail Header */}
+                  <div className="flex items-start justify-between mb-4">
+                    <div>
+                      <h3 className="text-lg font-bold text-gray-800 mb-1">{selectedOrder.studentDesc}</h3>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="bg-gray-100 text-gray-700 text-xs px-2 py-1 rounded">{selectedOrder.district}</span>
+                        <span className="bg-orange-100 text-orange-700 text-xs px-2 py-1 rounded">{selectedOrder.grade}</span>
+                        <span className="bg-orange-100 text-orange-700 text-xs px-2 py-1 rounded">{selectedOrder.subject}</span>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => toggleFavorite(selectedOrder)}
+                      className="p-2 rounded-full text-red-500 bg-red-50 hover:bg-red-100 transition-colors"
+                    >
+                      <Heart className="w-5 h-5 fill-current" />
+                    </button>
+                  </div>
+
+                  {/* Price & Distance */}
+                  <div className="grid grid-cols-2 gap-3 border-y border-gray-100 py-3 mb-4">
+                    <div>
+                      <div className="text-[9px] text-gray-400 font-bold uppercase">课时费用</div>
+                      <div className="text-lg font-black text-orange-600 mt-1">
+                        {selectedOrder.priceText || `${selectedOrder.price}元/h`}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-[9px] text-gray-400 font-bold uppercase">预估距离</div>
+                      <div className="text-sm font-semibold text-gray-700 mt-1">
+                        {currentLandmark ? (
+                          `${getDistance(currentLandmark.coordinate.lat, currentLandmark.coordinate.lng, selectedOrder.coordinate.lat, selectedOrder.coordinate.lng).toFixed(1)}km`
+                        ) : '未设置起点'}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Student Detail */}
+                  <div className="mb-4">
+                    <div className="text-[9px] text-gray-400 font-bold uppercase mb-1">学员详细情况</div>
+                    <p className="text-sm text-gray-700">{selectedOrder.studentDetail}</p>
+                  </div>
+
+                  {/* Frequency */}
+                  <div className="mb-4">
+                    <div className="text-[9px] text-gray-400 font-bold uppercase mb-1">上课频率</div>
+                    <p className="text-sm text-gray-700">{selectedOrder.frequency}</p>
+                  </div>
+
+                  {/* Requirements */}
+                  <div className="mb-4">
+                    <div className="text-[9px] text-gray-400 font-bold uppercase mb-1">教员要求</div>
+                    <p className="text-sm text-gray-700">{selectedOrder.requirements}</p>
+                  </div>
+
+                  {/* Action Buttons */}
+                  <div className="flex gap-3 mt-6">
+                    <button
+                      onClick={() => setIsNavigating(true)}
+                      className="flex-1 py-3 bg-white border border-gray-300 rounded-lg font-bold text-sm flex items-center justify-center gap-2 hover:bg-gray-50 transition-colors"
+                    >
+                      <Navigation className="w-4 h-4" />
+                      查看路线
+                    </button>
+                    <button
+                      onClick={() => setIsWeChatModalOpen(true)}
+                      className="flex-1 py-3 bg-orange-500 text-white rounded-lg font-bold text-sm flex items-center justify-center gap-2 hover:bg-orange-600 transition-colors shadow-md"
+                    >
+                      <Phone className="w-4 h-4" />
+                      联系领单
+                    </button>
+                  </div>
+                </div>
+              ) : selectedOrder ? (
+                <div className="flex-1 flex flex-col items-center justify-center p-6 text-center">
+                  <Heart className="w-12 h-12 text-gray-300 mb-3" />
+                  <p className="text-sm text-gray-500 mb-4">请选择一个收藏的家教单查看详情</p>
+                </div>
+              ) : (
+                <div className="flex-1 flex flex-col items-center justify-center p-6 text-center">
+                  <Heart className="w-12 h-12 text-gray-300 mb-3" />
+                  <p className="text-sm text-gray-500">从左侧选择一个收藏的家教单查看详情</p>
+                </div>
+              )}
+            </section>
+
+            {/* Mobile Detail Modal */}
+            {selectedOrder && isFavorited(selectedOrder.id) && (
+              <div className="md:hidden fixed inset-0 z-50 bg-black/50" onClick={() => setSelectedOrderId(null)}>
+                <div className="absolute bottom-0 left-0 right-0 bg-white rounded-t-2xl max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+                  {/* Modal Header */}
+                  <div className="sticky top-0 bg-white px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+                    <h3 className="font-bold text-gray-800">订单详情</h3>
+                    <button onClick={() => setSelectedOrderId(null)} className="p-1">
+                      <X className="w-5 h-5 text-gray-400" />
+                    </button>
+                  </div>
+                  
+                  {/* Modal Content */}
+                  <div className="p-4">
+                    <h4 className="font-bold text-gray-800 mb-2">{selectedOrder.studentDesc}</h4>
+                    <div className="flex flex-wrap gap-2 mb-3">
+                      <span className="bg-gray-100 text-gray-700 text-xs px-2 py-1 rounded">{selectedOrder.district}</span>
+                      <span className="bg-orange-100 text-orange-700 text-xs px-2 py-1 rounded">{selectedOrder.grade}</span>
+                      <span className="bg-orange-100 text-orange-700 text-xs px-2 py-1 rounded">{selectedOrder.subject}</span>
+                      <span className="text-orange-600 font-bold">{selectedOrder.priceText || `${selectedOrder.price}元/h`}</span>
+                    </div>
+                    <p className="text-sm text-gray-600 mb-2">{selectedOrder.studentDetail}</p>
+                    <p className="text-sm text-gray-600 mb-2"><strong>上课频率:</strong> {selectedOrder.frequency}</p>
+                    <p className="text-sm text-gray-600 mb-4"><strong>教员要求:</strong> {selectedOrder.requirements}</p>
+                    
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setIsWeChatModalOpen(true)}
+                        className="flex-1 py-3 bg-orange-500 text-white rounded-lg font-bold text-sm"
+                      >
+                        联系领单
+                      </button>
+                      <button
+                        onClick={() => toggleFavorite(selectedOrder)}
+                        className="py-3 px-4 border border-gray-300 rounded-lg"
+                      >
+                        <Heart className="w-5 h-5 text-red-500 fill-current" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
         )}
 
       </div>
@@ -1852,7 +2269,7 @@ export default function App() {
           }`}
         >
           <ListFilter className="w-5 h-5 stroke-[2]" />
-          <span className="text-sm font-bold uppercase tracking-wider">找家教(常规列表)</span>
+          <span className="text-sm font-bold uppercase tracking-wider">列表视图找家教</span>
         </button>
 
         <button
@@ -1865,7 +2282,26 @@ export default function App() {
           }`}
         >
           <Map className="w-5 h-5 stroke-[2]" />
-          <span className="text-sm font-bold uppercase tracking-wider">附近家教(地图视图)</span>
+          <span className="text-sm font-bold uppercase tracking-wider">地图视图找家教</span>
+        </button>
+
+        <button
+          id="tab-switch-favorites-btn"
+          onClick={() => {
+            setActiveTab('favorites');
+            setSelectedOrderId(null);
+          }}
+          className={`flex-1 flex flex-col items-center justify-center gap-1 border-l border-gray-100 cursor-pointer transition-all relative ${
+            activeTab === 'favorites'
+              ? 'text-orange-500 bg-orange-50/15 font-bold'
+              : 'text-gray-400 hover:text-gray-600'
+          }`}
+        >
+          <Heart className="w-5 h-5 stroke-[2]" />
+          <span className="text-sm font-bold uppercase tracking-wider">我的收藏</span>
+          {favoriteIds.length > 0 && (
+            <span className="absolute top-1 right-3 bg-red-500 text-white text-[10px] px-1.5 py-0.5 rounded-full">{favoriteIds.length}</span>
+          )}
         </button>
       </footer>
 
@@ -2161,7 +2597,7 @@ export default function App() {
       {/* MODAL 4: CONTACT WECHAT POPUP (一键唤起固定微信二维码，扫码添加) */}
       {isWeChatModalOpen && selectedOrder && (
         <div id="wechat-modal" className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setIsWeChatModalOpen(false)} />
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => { setIsWeChatModalOpen(false); setIsQRCodeLoaded(false); }} />
           
           <div className="bg-white rounded-xl shadow-2xl border border-gray-100 max-w-sm w-full z-10 overflow-hidden flex flex-col relative animate-scale-up">
             
@@ -2169,7 +2605,7 @@ export default function App() {
             <div className="px-5 py-3 border-b border-gray-150 bg-gray-50 flex justify-between items-center text-xs font-bold leading-none select-none text-gray-700">
               <span>扫码添加小德专属微信</span>
               <button 
-                onClick={() => setIsWeChatModalOpen(false)}
+                onClick={() => { setIsWeChatModalOpen(false); setIsQRCodeLoaded(false); }}
                 className="p-1 rounded-full text-gray-400 hover:bg-gray-200 transition-colors"
                 id="close-wechat-modal-btn"
               >
@@ -2193,14 +2629,13 @@ export default function App() {
 
               {/* WECHAT QR CODE */}
               <div className="w-48 h-48 border-2 border-orange-100 rounded-md my-4 p-2 bg-neutral-50 relative flex flex-col items-center justify-center select-none shadow-inner overflow-hidden">
-                <img 
-                  src="/wechat-qr.png" 
-                  alt="小德微信二维码" 
-                  className="w-full h-full object-contain"
-                  loading="lazy"
-                  decoding="async"
+                <img
+                  src="/wechat-qr.png"
+                  alt="小德微信二维码"
+                  className="w-full h-full object-contain relative z-10"
                   onLoad={(e) => {
                     (e.target as HTMLImageElement).style.opacity = '1';
+                    setIsQRCodeLoaded(true);
                   }}
                   onError={(e) => {
                     (e.target as HTMLImageElement).style.display = 'none';
@@ -2208,9 +2643,11 @@ export default function App() {
                   }}
                   style={{ opacity: 0, transition: 'opacity 0.3s ease-in-out' }}
                 />
-                <div className="absolute inset-0 bg-neutral-100 flex items-center justify-center">
-                  <div className="w-8 h-8 border-2 border-orange-500 border-t-transparent rounded-full animate-spin"></div>
-                </div>
+                {!isQRCodeLoaded && (
+                  <div className="absolute inset-0 bg-neutral-100 flex items-center justify-center z-0">
+                    <div className="w-8 h-8 border-2 border-orange-500 border-t-transparent rounded-full animate-spin"></div>
+                  </div>
+                )}
               </div>
 
               {/* Text WeChat ID list for manual copy */}
@@ -2284,6 +2721,8 @@ export default function App() {
                 <div className="text-lg font-black text-orange-600 mt-1 flex items-baseline">
                   {selectedOrder.isNegotiable ? (
                     <span className="text-sm font-bold text-teal-600">教员协商报价</span>
+                  ) : selectedOrder.priceText ? (
+                    <span className="text-lg">{selectedOrder.priceText}</span>
                   ) : (
                     <>
                       <span className="text-xs font-semibold">¥</span>
