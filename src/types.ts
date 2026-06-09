@@ -21,6 +21,8 @@ export interface Order {
   isNegotiable: boolean; // unpriced orders "包含未报价"
   contactTeacher: string;
   publishTime: string;
+  rawContent: string; // Raw order content without the id line
+  idLine: string; // The id line content (e.g., "家教编号：2026060902#暑假7月份开始")
 }
 
 export interface Landmark {
@@ -29,6 +31,7 @@ export interface Landmark {
   address: string;
   coordinate: Coordinate;
   type: 'university' | 'gps' | 'custom';
+  distance?: number; // Distance from current location in kilometers
 }
 
 export interface FilterState {
@@ -45,8 +48,6 @@ export interface AdvancedFilterState {
   maxDistance: number; // in km, default 100
   minHourlyRate: number; // in 元/小时, default 10
   includeUnpriced: boolean; // default false
-  genderRequirement: 'all' | 'male' | 'female';
-  gradeLevel: 'all' | 'primary' | 'middle' | 'high';
 }
 
 export type TravelMode = 'transit' | 'driving' | 'riding' | 'walking';

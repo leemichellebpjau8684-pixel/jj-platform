@@ -3,7 +3,7 @@ import {
   MapPin, Search, School, Navigation, X, Check, ArrowLeft, Loader,
   ChevronDown, SlidersHorizontal, Sparkles, DollarSign, Clock, Compass, 
   User, Map, ListFilter, Copy, RotateCcw, Info, ExternalLink, Eye, 
-  Volume2, CheckCircle2, ChevronRight, Phone, BookOpen
+  Volume2, CheckCircle2, ChevronRight, Phone, BookOpen, HelpCircle
 } from 'lucide-react';
 
 import { Order, Landmark, FilterState, AdvancedFilterState, TravelMode, NavigationResult } from './types';
@@ -53,7 +53,9 @@ export default function App() {
         isCollegeStudent: true,
         isNegotiable: false,
         contactTeacher: 'Ken06103',
-        publishTime: '2026-06-04 10:00:23'
+        publishTime: '2026-06-04 10:00:23',
+        rawContent: '学员地址：静安区江宁路418弄小区\n学员情况：初二男生，英语词汇匮乏，语法薄弱，期中考试成绩不及格。急需耐心老师辅导。\n时间安排：每周2次，每次2小时\n教员要求：男女教员均可，要求英语CET-6通过，有静安周边家教经验优先。\n老师薪水：130元/小时',
+        idLine: '家教编号：DRAFT-2026-001'
       },
       {
         id: 'DRAFT-2026-002',
@@ -72,7 +74,9 @@ export default function App() {
         isCollegeStudent: true,
         isNegotiable: false,
         contactTeacher: 'Ken06103',
-        publishTime: '2026-06-04 10:15:45'
+        publishTime: '2026-06-04 10:15:45',
+        rawContent: '学员地址：浦东新区张江碧波路635号\n学员情况：三年级小男生，数学口算略慢，学校教学之外期望进行一定的思维拓展（奥数启蒙）。\n时间安排：每周1-2次，周六下午或周日上午\n教员要求：仅限重点大学学生（复旦/交大/同济优先），沟通表达能力强。\n老师薪水：100元/小时',
+        idLine: '家教编号：DRAFT-2026-002'
       }
     ];
   });
@@ -102,7 +106,9 @@ export default function App() {
         isCollegeStudent: false,
         isNegotiable: false,
         contactTeacher: 'Ken06103',
-        publishTime: '2026-05-15 14:00:00'
+        publishTime: '2026-05-15 14:00:00',
+        rawContent: '学员地址：普陀区长寿路常德路口临近小区\n学员情况：高三物理，力学、电磁学重难点复习。高考冲刺复习。\n时间安排：每周2次\n教员要求：物理学专业师范生或重点院校强基计划学生。\n老师薪水：150元/小时',
+        idLine: '家教编号：ARCHIVE-2026-001'
       }
     ];
   });
@@ -249,6 +255,7 @@ export default function App() {
 
   // Keyword query
   const [searchQuery, setSearchQuery] = useState('');
+  const [appliedSearchQuery, setAppliedSearchQuery] = useState('');
   
   // Quick Switch Tags
   const [tagOnline, setTagOnline] = useState(false);
@@ -260,15 +267,12 @@ export default function App() {
   const [advancedFilters, setAdvancedFilters] = useState<AdvancedFilterState>({
     maxDistance: 20, // defaults to 20 km search radius as per user story
     minHourlyRate: 80, // default min rate
-    includeUnpriced: false, // hide unpriced (price=0) default
-    genderRequirement: 'all',
-    gradeLevel: 'all'
+    includeUnpriced: false // hide unpriced (price=0) default
   });
 
   // Temporary container for advanced filter modifications
   const [tempAdvancedFilters, setTempAdvancedFilters] = useState<AdvancedFilterState>({ ...advancedFilters });
   const [advancedInputErrors, setAdvancedInputErrors] = useState<{ maxDistance?: string; minHourlyRate?: string }>({});
-  const [isMoreOptionsExpanded, setIsMoreOptionsExpanded] = useState(false);
 
   // Landmark Selection Modal toggler
   const [isLandmarkModalOpen, setIsLandmarkModalOpen] = useState(false);
@@ -296,8 +300,8 @@ export default function App() {
 
   // Multi-term space-splitted smart search
   const queryTerms = useMemo(() => {
-    return searchQuery.trim().toLowerCase().split(/\s+/).filter(Boolean);
-  }, [searchQuery]);
+    return appliedSearchQuery.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  }, [appliedSearchQuery]);
 
   // Compute final orders pool combining baseline filters + advanced criteria
   const filteredOrders = useMemo(() => {
@@ -312,9 +316,14 @@ export default function App() {
         return false;
       }
 
-      // 3. Subject multi-select logic
-      if (selectedSubjects.length > 0 && !selectedSubjects.includes(order.subject)) {
-        return false;
+      // 3. Subject multi-select logic - using contains match for combined subjects
+      if (selectedSubjects.length > 0) {
+        const matchesAnySubject = selectedSubjects.some(
+          selected => order.subject.includes(selected)
+        );
+        if (!matchesAnySubject) {
+          return false;
+        }
       }
 
       // 4. Quick tags checks
@@ -351,25 +360,6 @@ export default function App() {
           order.coordinate.lng
         );
         if (km > advancedFilters.maxDistance) {
-          return false;
-        }
-      }
-
-      // Advanced Category Foldout specs
-      if (advancedFilters.gradeLevel !== 'all') {
-        const mapping: Record<string, string> = { primary: '小学', middle: '初中', high: '高中' };
-        if (mapping[advancedFilters.gradeLevel] && order.grade !== mapping[advancedFilters.gradeLevel]) {
-          return false;
-        }
-      }
-
-      if (advancedFilters.genderRequirement !== 'all') {
-        const isMaleTeacherReq = order.requirements.includes('男') || order.requirements.includes('学长') || order.studentDesc.includes('男生');
-        const isFemaleTeacherReq = order.requirements.includes('女') || order.requirements.includes('学姐') || order.studentDesc.includes('女生');
-        if (advancedFilters.genderRequirement === 'male' && isFemaleTeacherReq && !isMaleTeacherReq) {
-          return false;
-        }
-        if (advancedFilters.genderRequirement === 'female' && isMaleTeacherReq && !isFemaleTeacherReq) {
           return false;
         }
       }
@@ -434,22 +424,19 @@ export default function App() {
     setTempGrades([]);
     setTempSubjects([]);
     setSearchQuery('');
+    setAppliedSearchQuery('');
     setTagOnline(false);
     setTagCollege(false);
     setTagHighPrice(false);
     setAdvancedFilters({
       maxDistance: 100,
       minHourlyRate: 10,
-      includeUnpriced: false,
-      genderRequirement: 'all',
-      gradeLevel: 'all'
+      includeUnpriced: false
     });
     setTempAdvancedFilters({
       maxDistance: 100,
       minHourlyRate: 10,
-      includeUnpriced: false,
-      genderRequirement: 'all',
-      gradeLevel: 'all'
+      includeUnpriced: false
     });
     setAdvancedInputErrors({});
   };
@@ -641,57 +628,79 @@ export default function App() {
   return (
     <div className="w-full h-screen md:w-[1024px] md:h-[768px] bg-[#F8F9FA] flex flex-col font-sans overflow-hidden text-[#1A1A1A] relative select-none mx-auto">
       
-      {/* 2. Top Header and Tutors Statistics */}
-      <header className="h-14 bg-white border-b border-gray-200 flex items-center justify-between px-4 md:px-6 shrink-0 z-20 shadow-sm">
-        <div id="company-logo-group" className="flex items-center gap-2">
+      {/* Mobile Header - Fixed top bar with title */}
+      <header className="md:hidden h-14 bg-white border-b border-gray-100 flex items-center justify-between px-4 shrink-0 z-20 shadow-sm sticky top-0">
+        <button className="text-gray-600 hover:text-gray-800 p-1">
+          <X className="w-5 h-5" />
+        </button>
+        <div className="text-center">
+          <h1 className="text-base font-bold text-gray-800">家教订单查询系统</h1>
+          <p className="text-[10px] text-gray-400">www.jiajiao.site</p>
+        </div>
+        <button className="text-gray-600 hover:text-gray-800 p-1">
+          <ChevronDown className="w-5 h-5" />
+        </button>
+      </header>
+
+      {/* PC Header */}
+      <header className="hidden md:block h-14 bg-white border-b border-gray-200 flex items-center justify-between px-4 md:px-6 shrink-0 z-20 shadow-sm">
+        <div id="company-logo-group" className="flex items-center gap-2 shrink-0">
           <div className="w-8 h-8 bg-orange-500 rounded-md flex items-center justify-center text-white font-bold text-base tracking-wider shadow-sm">
             <BookOpen className="w-5 h-5" />
-          </div>
-          <div className="flex flex-col">
-            <h1 className="text-sm font-bold tracking-tight text-neutral-800 flex items-center gap-1.5">
-              心仪单请联系小德：Ken06103
-              <span className="text-[10px] bg-red-50 text-red-600 font-semibold px-1 rounded font-mono">上海端 V1.0</span>
-            </h1>
           </div>
         </div>
 
         {/* Announcement sliding wire - PC only */}
-        <div className="hidden md:flex flex-1 max-w-[280px] mx-4 overflow-hidden bg-orange-50/50 border border-orange-100/40 px-2 py-0.5 rounded items-center gap-1">
+        <div className="flex-1 max-w-[280px] mx-4 overflow-hidden bg-orange-50/50 border border-orange-100/40 px-2 py-0.5 rounded flex items-center gap-1">
           <Volume2 className="w-3 h-3 text-orange-600 shrink-0" />
-          <div className="text-[10px] text-orange-850 font-medium truncate animate-pulse">
+          <div className="text-[10px] text-orange-850 font-medium truncate">
             {announcement}
           </div>
         </div>
 
-        {/* Stats - PC only */}
-        <div className="hidden md:flex gap-6 text-xs font-medium">
-          <div className="flex flex-col items-end">
-            <span className="text-gray-400 text-[10px]">今日新增订单</span>
-            <span className="text-[#ff7823] font-bold text-sm leading-none mt-0.5 font-mono">+{stats.todayAdded}</span>
-          </div>
-          <div className="flex flex-col items-end border-l border-gray-100 pl-4">
-            <span className="text-gray-400 text-[10px]">待匹配需求</span>
-            <span className="text-neutral-900 font-bold text-sm leading-none mt-0.5 font-mono">{stats.totalOrders}</span>
-          </div>
-          <div className="flex flex-col items-end border-l border-gray-100 pl-4">
-            <span className="text-gray-400 text-[10px]">平台活跃教员</span>
-            <span className="text-neutral-900 font-bold text-sm leading-none mt-0.5 font-mono">12,804</span>
-          </div>
-        </div>
-        
-        {/* Mobile stats indicator */}
-        <div className="md:hidden flex items-center gap-2 text-xs">
-          <span className="text-[#ff7823] font-bold">+{stats.todayAdded}</span>
-          <span className="text-gray-400">|</span>
-          <span className="text-neutral-900 font-bold">{stats.totalOrders}单</span>
-        </div>
       </header>
 
-      {/* 3. Main Multi-conditions Filter section */}
-      <nav className="bg-white px-4 md:px-6 py-2.5 border-b border-gray-200 flex flex-col gap-2 shrink-0 z-10 shadow-sm">
-        
+      {/* 3. Welcome Banner - PC only */}
+      <div className="hidden md:block bg-gradient-to-r from-orange-100 via-orange-50 to-amber-50 px-6 py-4 relative overflow-hidden rounded-2xl shadow-sm m-4 border border-orange-200/30">
+        {/* Location button - Top Left */}
+        <button className="absolute top-3 left-3 w-12 h-12 bg-orange-500 rounded-full shadow-md flex items-center justify-center ring-2 ring-white hover:bg-orange-600 transition-colors" onClick={() => setIsLandmarkModalOpen(true)}>
+          <MapPin className="w-6 h-6 text-white" />
+        </button>
+        {/* Text content - centered */}
+        <div className="relative text-center">
+          <p className="text-red-600 text-sm font-bold leading-relaxed mb-1">
+            欢迎使用家教订单查询系统（*点击订单右下角图标，体验新增导航功能）
+          </p>
+          <p className="text-gray-700 text-xs leading-relaxed mb-2">
+            点击右上角 <span className="inline-block w-5 h-5 bg-white rounded-full text-center text-gray-700 text-[10px] font-bold flex items-center justify-center mx-auto">?</span> 查看帮助视频(3个)，您将学会：
+          </p>
+          <div className="flex justify-center gap-2 mb-2">
+            <span className="bg-orange-500 text-white text-xs px-3 py-1 rounded-full font-semibold">1km内选单</span>
+            <span className="bg-orange-500 text-white text-xs px-3 py-1 rounded-full font-semibold">地标选定</span>
+            <span className="bg-orange-500 text-white text-xs px-3 py-1 rounded-full font-semibold">5秒速推</span>
+          </div>
+          <p className="text-gray-500 text-xs">
+            点击"我的" 🧑‍🎓 登录或注册开始体验5秒速推
+          </p>
+        </div>
+      </div>
+
+      {/* 4. Stats Cards - PC only */}
+      <div className="hidden md:flex gap-4 px-6 mb-4">
+        <div className="flex-1 bg-white rounded-xl shadow-sm p-4 border border-gray-100">
+          <div className="text-xs text-gray-400 mb-1">本次查询 / 订单总数</div>
+          <div className="text-2xl font-bold text-gray-800 font-mono">{filteredOrders.length} / {stats.totalOrders}</div>
+        </div>
+        <div className="flex-1 bg-white rounded-xl shadow-sm p-4 border border-gray-100">
+          <div className="text-xs text-gray-400 mb-1">最后更新</div>
+          <div className="text-lg font-bold text-gray-800 font-mono">{stats.lastUpdated}</div>
+        </div>
+      </div>
+
+      {/* 5. Main Multi-conditions Filter section */}
+      <nav className="hidden md:block bg-white px-6 py-3 border-b border-gray-200 flex flex-col gap-2 shrink-0 z-10 shadow-sm">
         {/* PC Layout: Horizontal */}
-        <div className="hidden md:flex items-center justify-between gap-3">
+        <div className="flex items-center justify-between gap-3">
           
           {/* Dropdown Filters Block */}
           <div className="flex gap-1.5 shrink-0 relative">
@@ -706,20 +715,20 @@ export default function App() {
                   setIsSubjectDropdownOpen(false);
                   setTempDistricts(selectedDistricts);
                 }}
-                className={`px-2.5 py-1.5 border rounded text-xs flex items-center justify-between gap-1 hover:bg-gray-50 font-medium transition-all ${
+                className={`px-4 py-2.5 border rounded text-base flex items-center justify-between gap-1.5 hover:bg-gray-50 font-medium transition-all ${
                   selectedDistricts.length > 0 
                   ? 'border-orange-500 bg-orange-50/30 text-orange-700' 
                   : 'bg-gray-50 border-gray-200 text-gray-700'
                 }`}
               >
                 <span>{selectedDistricts.length === 0 ? '地区/行政区' : `已选地区(${selectedDistricts.length})`}</span>
-                <ChevronDown className="w-3.5 h-3.5 text-gray-400" />
+                <ChevronDown className="w-5 h-5 text-gray-400" />
               </button>
 
               {isDistrictDropdownOpen && (
                 <div id="district-dropdown-panel" className="absolute top-8 left-0 w-64 bg-white border border-gray-200 rounded-xl shadow-xl p-4 z-40">
                   <div className="flex justify-between items-center mb-2.5 border-b border-gray-100 pb-2">
-                    <label className="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer">
+                    <label className="flex items-center gap-1.5 text-sm text-gray-500 cursor-pointer">
                       <input
                         type="checkbox"
                         checked={tempDistricts.length === SHANGHAI_DISTRICTS.length}
@@ -744,7 +753,7 @@ export default function App() {
                         <button
                           key={item}
                           onClick={() => toggleTempDistrict(item)}
-                          className={`py-1 text-center rounded text-[11px] font-sans border transition-all truncate px-1 ${
+                          className={`py-1.5 text-center rounded text-sm font-sans border transition-all truncate px-1 ${
                             isChecked
                               ? 'bg-orange-500 text-white border-orange-500 font-semibold'
                               : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'
@@ -786,20 +795,20 @@ export default function App() {
                   setIsSubjectDropdownOpen(false);
                   setTempGrades(selectedGrades);
                 }}
-                className={`px-2.5 py-1.5 border rounded text-xs flex items-center justify-between gap-1 hover:bg-gray-50 font-medium transition-all ${
+                className={`px-4 py-2.5 border rounded text-base flex items-center justify-between gap-1.5 hover:bg-gray-50 font-medium transition-all ${
                   selectedGrades.length > 0
                   ? 'border-orange-500 bg-orange-50/30 text-orange-700'
                   : 'bg-gray-50 border-gray-200 text-gray-700'
                 }`}
               >
                 <span>{selectedGrades.length === 0 ? '授课年级' : `年级(${selectedGrades.length})`}</span>
-                <ChevronDown className="w-3.5 h-3.5 text-gray-400" />
+                <ChevronDown className="w-5 h-5 text-gray-400" />
               </button>
 
               {isGradeDropdownOpen && (
                 <div id="grade-dropdown-panel" className="absolute top-8 left-0 w-52 bg-white border border-gray-200 rounded-xl shadow-xl p-4 z-40">
                   <div className="flex justify-between items-center mb-2 pb-2 border-b border-gray-100">
-                    <label className="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer">
+                    <label className="flex items-center gap-1.5 text-sm text-gray-500 cursor-pointer">
                       <input
                         type="checkbox"
                         checked={tempGrades.length === GRADES.length}
@@ -864,20 +873,20 @@ export default function App() {
                   setIsGradeDropdownOpen(false);
                   setTempSubjects(selectedSubjects);
                 }}
-                className={`px-2.5 py-1.5 border rounded text-xs flex items-center justify-between gap-1 hover:bg-gray-50 font-medium transition-all ${
+                className={`px-4 py-2.5 border rounded text-base flex items-center justify-between gap-1.5 hover:bg-gray-50 font-medium transition-all ${
                   selectedSubjects.length > 0
                   ? 'border-orange-500 bg-orange-50/30 text-orange-700'
                   : 'bg-gray-50 border-gray-200 text-gray-700'
                 }`}
               >
                 <span>{selectedSubjects.length === 0 ? '科目/类别' : `科目(${selectedSubjects.length})`}</span>
-                <ChevronDown className="w-3.5 h-3.5 text-gray-400" />
+                <ChevronDown className="w-5 h-5 text-gray-400" />
               </button>
 
               {isSubjectDropdownOpen && (
                 <div id="subject-dropdown-panel" className="absolute top-8 left-0 w-64 bg-white border border-gray-200 rounded-xl shadow-xl p-4 z-40">
                   <div className="flex justify-between items-center mb-2 pb-2 border-b border-gray-100">
-                    <label className="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer">
+                    <label className="flex items-center gap-1.5 text-sm text-gray-500 cursor-pointer">
                       <input
                         type="checkbox"
                         checked={tempSubjects.length === SUBJECTS.length}
@@ -942,24 +951,24 @@ export default function App() {
               placeholder="可输入地区、年级、科目关键词组合检索 (如: 杨浦 高三 数学)"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-8 pr-4 py-1.5 bg-gray-100 border-none rounded text-xs focus:ring-1.5 focus:ring-orange-500 focus:bg-white text-gray-800 placeholder-gray-400 focus:outline-none transition-all"
+              className="w-full pl-9 pr-4 py-2.5 bg-gray-100 border-none rounded text-base focus:ring-1.5 focus:ring-orange-500 focus:bg-white text-gray-800 placeholder-gray-400 focus:outline-none transition-all"
             />
-            <Search className="w-3.5 h-3.5 absolute left-2.5 top-2 text-gray-400" />
+            <Search className="w-5 h-5 absolute left-3 top-2.5 text-gray-400" />
             {searchQuery && (
               <button
                 onClick={() => setSearchQuery('')}
-                className="absolute right-2.5 top-1.5 text-gray-400 hover:text-gray-600 p-0.5 rounded-full"
+                className="absolute right-2.5 top-2 text-gray-400 hover:text-gray-600 p-0.5 rounded-full"
               >
-                <X className="w-3 h-3" />
+                <X className="w-4 h-4" />
               </button>
             )}
           </div>
 
           {/* Quick Filter Tags (Rounded Pills) */}
-          <div className="flex items-center gap-1 shrink-0">
+          <div className="flex items-center gap-2 shrink-0">
             <button
               onClick={() => setTagOnline(!tagOnline)}
-              className={`px-3 py-1.5 rounded-full text-[10px] font-semibold transition-all ${
+              className={`px-4 py-2.5 rounded-full text-sm font-semibold transition-all ${
                 tagOnline 
                 ? 'bg-orange-500 text-white' 
                 : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
@@ -969,7 +978,7 @@ export default function App() {
             </button>
             <button
               onClick={() => setTagCollege(!tagCollege)}
-              className={`px-3 py-1.5 rounded-full text-[10px] font-semibold transition-all ${
+              className={`px-4 py-2.5 rounded-full text-sm font-semibold transition-all ${
                 tagCollege 
                 ? 'bg-orange-500 text-white' 
                 : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
@@ -979,7 +988,7 @@ export default function App() {
             </button>
             <button
               onClick={() => setTagHighPrice(!tagHighPrice)}
-              className={`px-3 py-1.5 border rounded-full text-[10px] font-semibold transition-all flex items-center gap-0.5 ${
+              className={`px-4 py-2.5 border rounded-full text-sm font-semibold transition-all flex items-center gap-0.5 ${
                 tagHighPrice 
                 ? 'bg-orange-500 text-white border-orange-500' 
                 : 'bg-orange-50/60 text-orange-600 border border-orange-200 hover:bg-orange-100/60'
@@ -991,9 +1000,9 @@ export default function App() {
             <button
               id="advanced-filters-trigger"
               onClick={handleOpenAdvancedModal}
-              className="px-3.5 py-1.5 bg-gray-800 text-white rounded-full text-[10px] font-semibold hover:bg-gray-900 transition-colors flex items-center gap-1 shrink-0 cursor-pointer shadow-sm"
+              className="px-4.5 py-2.5 bg-gray-800 text-white rounded-full text-sm font-semibold hover:bg-gray-900 transition-colors flex items-center gap-1 shrink-0 cursor-pointer shadow-sm"
             >
-              <SlidersHorizontal className="w-3 h-3" />
+              <SlidersHorizontal className="w-4 h-4" />
               <span>高级</span>
             </button>
 
@@ -1011,7 +1020,7 @@ export default function App() {
 
         </div>
 
-        {/* 4. Active Location Binding - PC only */}
+        {/* 6. Active Location Binding - PC only */}
         <div className="hidden md:flex items-center justify-between border-t border-gray-100 pt-1.5 mt-0.5 text-[10px] text-gray-500 font-sans">
           <div className="flex items-center gap-2">
             <span className="bg-gray-200 text-gray-700 px-1.5 py-0.5 rounded text-[9px] font-semibold shrink-0 uppercase tracking-wider">首选授课起点</span>
@@ -1059,7 +1068,7 @@ export default function App() {
                   setIsSubjectDropdownOpen(false);
                   setTempDistricts(selectedDistricts);
                 }}
-                className={`px-2 py-1.5 border rounded text-xs flex items-center justify-between gap-1 font-medium ${
+                className={`px-3 py-2.5 border rounded text-base flex items-center justify-between gap-1 font-medium ${
                   selectedDistricts.length > 0 
                     ? 'border-orange-500 bg-orange-50/30 text-orange-700' 
                     : 'bg-gray-50 border-gray-200 text-gray-700'
@@ -1072,7 +1081,7 @@ export default function App() {
               {isDistrictDropdownOpen && (
                 <div className="absolute top-8 left-0 w-64 bg-white border border-gray-200 rounded-xl shadow-xl p-4 z-50">
                   <div className="flex justify-between items-center mb-2 border-b border-gray-100 pb-2">
-                    <label className="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer">
+                    <label className="flex items-center gap-1.5 text-sm text-gray-500 cursor-pointer">
                       <input
                         type="checkbox"
                         checked={tempDistricts.length === SHANGHAI_DISTRICTS.length}
@@ -1087,7 +1096,7 @@ export default function App() {
                       />
                       <span>全选</span>
                     </label>
-                    <span className="text-[10px] text-gray-400">上海市行政区</span>
+                    <span className="text-sm text-gray-400">上海市行政区</span>
                   </div>
                   
                   <div className="grid grid-cols-3 gap-1.5 max-h-44 overflow-y-auto mb-3">
@@ -1097,7 +1106,7 @@ export default function App() {
                         <button
                           key={item}
                           onClick={() => toggleTempDistrict(item)}
-                          className={`py-1 text-center rounded text-[11px] font-sans border transition-all truncate px-1 ${
+                          className={`py-1.5 text-center rounded text-sm font-sans border transition-all truncate px-1 ${
                             isChecked
                               ? 'bg-orange-500 text-white border-orange-500 font-semibold'
                               : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'
@@ -1110,8 +1119,8 @@ export default function App() {
                   </div>
 
                   <div className="flex justify-end gap-2 border-t border-gray-100 pt-2">
-                    <button onClick={handleDistrictReset} className="px-2 py-1 text-[11px] font-semibold text-gray-500 border border-gray-200 rounded">重置</button>
-                    <button onClick={handleDistrictConfirm} className="px-3 py-1 text-[11px] font-semibold bg-orange-500 text-white rounded">确定</button>
+                    <button onClick={handleDistrictReset} className="px-3 py-1.5 text-sm font-semibold text-gray-500 border border-gray-200 rounded">重置</button>
+                    <button onClick={handleDistrictConfirm} className="px-4 py-1.5 text-sm font-semibold bg-orange-500 text-white rounded">确定</button>
                   </div>
                 </div>
               )}
@@ -1126,7 +1135,7 @@ export default function App() {
                   setIsSubjectDropdownOpen(false);
                   setTempGrades(selectedGrades);
                 }}
-                className={`px-2 py-1.5 border rounded text-xs flex items-center justify-between gap-1 font-medium ${
+                className={`px-3 py-2.5 border rounded text-base flex items-center justify-between gap-1 font-medium ${
                   selectedGrades.length > 0
                     ? 'border-orange-500 bg-orange-50/30 text-orange-700'
                     : 'bg-gray-50 border-gray-200 text-gray-700'
@@ -1173,7 +1182,7 @@ export default function App() {
                   setIsGradeDropdownOpen(false);
                   setTempSubjects(selectedSubjects);
                 }}
-                className={`px-2 py-1.5 border rounded text-xs flex items-center justify-between gap-1 font-medium ${
+                className={`px-3 py-2.5 border rounded text-base flex items-center justify-between gap-1 font-medium ${
                   selectedSubjects.length > 0
                     ? 'border-orange-500 bg-orange-50/30 text-orange-700'
                     : 'bg-gray-50 border-gray-200 text-gray-700'
@@ -1211,55 +1220,11 @@ export default function App() {
               )}
             </div>
           </div>
-
-          {/* Search Box */}
-          <div className="relative">
-            <input
-              type="text"
-              placeholder="输入关键词检索"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-8 pr-4 py-2 bg-gray-100 border-none rounded text-xs focus:ring-1.5 focus:ring-orange-500 focus:bg-white text-gray-800 placeholder-gray-400 focus:outline-none"
-            />
-            <Search className="w-4 h-4 absolute left-2.5 top-2.5 text-gray-400" />
-            {searchQuery && (
-              <button onClick={() => setSearchQuery('')} className="absolute right-2.5 top-2 text-gray-400 hover:text-gray-600 p-0.5 rounded-full">
-                <X className="w-3.5 h-3.5" />
-              </button>
-            )}
-          </div>
-
-          {/* Quick Filter Tags */}
-          <div className="flex flex-wrap items-center gap-1">
-            <button onClick={() => setTagOnline(!tagOnline)} className={`px-3 py-1.5 rounded-full text-[10px] font-semibold transition-all ${tagOnline ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>线上</button>
-            <button onClick={() => setTagCollege(!tagCollege)} className={`px-3 py-1.5 rounded-full text-[10px] font-semibold transition-all ${tagCollege ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>大学生</button>
-            <button onClick={() => setTagHighPrice(!tagHighPrice)} className={`px-3 py-1.5 border rounded-full text-[10px] font-semibold transition-all flex items-center gap-0.5 ${tagHighPrice ? 'bg-orange-500 text-white border-orange-500' : 'bg-orange-50/60 text-orange-600 border border-orange-200'}`}>高价单 🔥</button>
-            <button onClick={handleOpenAdvancedModal} className="px-3 py-1.5 bg-gray-800 text-white rounded-full text-[10px] font-semibold hover:bg-gray-900 transition-colors flex items-center gap-1 shadow-sm">
-              <SlidersHorizontal className="w-3 h-3" />
-              <span>高级</span>
-            </button>
-            {(selectedDistricts.length > 0 || selectedGrades.length > 0 || selectedSubjects.length > 0 || searchQuery || tagOnline || tagCollege || tagHighPrice) && (
-              <button onClick={handleResetAllFilters} className="p-1 text-gray-400 hover:text-red-500 transition-colors rounded hover:bg-gray-100">
-                <RotateCcw className="w-3.5 h-3.5" />
-              </button>
-            )}
-          </div>
-
-          {/* Mobile Location Indicator */}
-          <div className="flex items-center gap-1 border-t border-gray-100 pt-1.5 text-[10px] text-gray-500 flex-wrap">
-            <span className="bg-gray-200 text-gray-700 px-1.5 py-0.5 rounded text-[9px] font-semibold shrink-0">起点</span>
-            {currentLandmark ? (
-              <span className="font-semibold text-gray-700 truncate">{currentLandmark.name}</span>
-            ) : (
-              <span className="text-red-500 font-semibold">未绑定!</span>
-            )}
-            <button onClick={() => setIsLandmarkModalOpen(true)} className="text-blue-600 hover:text-blue-800 font-bold ml-1">修改</button>
-          </div>
         </div>
 
       </nav>
 
-      {/* 5. Main Canvas Split Workspace */}
+      {/* 7. Main Canvas Split Workspace */}
       <div className="flex-1 flex overflow-hidden relative">
         
         {/* VIEW 1: REGULAR LIST SPLIT ("找家教") */}
@@ -1267,13 +1232,287 @@ export default function App() {
           <div className="flex-1 flex overflow-hidden">
             
             {/* LEFT SIDE: ORDER LISTS - PC 60% width, Mobile full width */}
-            <section className="md:w-[60%] md:border-r md:border-gray-200 w-full overflow-y-auto bg-gray-50 flex flex-col gap-2.5 p-3 md:shrink-0 scroll-smooth">
+            <section className="md:w-[60%] md:border-r md:border-gray-200 w-full overflow-y-auto bg-gray-50 flex flex-col gap-2.5 p-3 md:shrink-0 scroll-smooth md:pt-3 pt-3">
               
+              {/* Mobile Welcome Banner - scrolls with content */}
+              <div className="md:hidden bg-gradient-to-r from-orange-100 via-orange-50 to-amber-50 px-3 py-4 relative overflow-hidden rounded-2xl shadow-sm mb-3 border border-orange-200/30 min-h-[120px] flex items-center justify-center">
+                {/* Location button - Top Left */}
+                <button className="absolute top-2 left-2 w-10 h-10 bg-orange-500 rounded-full shadow-md flex items-center justify-center ring-2 ring-white hover:bg-orange-600 transition-colors" onClick={() => setIsLandmarkModalOpen(true)}>
+                  <MapPin className="w-5 h-5 text-white" />
+                </button>
+                {/* Text content - centered */}
+                <div className="relative text-center">
+                  <p className="text-gray-800 text-xs leading-relaxed mb-1.5 font-medium">
+                    欢迎使用家教订单查询系统
+                  </p>
+                  <p className="text-gray-700 text-[10px] leading-relaxed mb-1.5">
+                    (*点击订单右下角图标，体验新增导航功能)
+                  </p>
+                  <p className="text-gray-700 text-[10px] leading-relaxed mb-1.5">
+                    点击右上角 <span className="inline-block w-4 h-4 bg-white rounded-full text-center text-gray-700 text-[8px] font-bold flex items-center justify-center mx-auto">?</span> 查看帮助视频(3个)，您将学会：
+                  </p>
+                  <div className="flex justify-center gap-1.5 mb-1.5">
+                    <span className="bg-orange-500 text-white text-[9px] px-2.5 py-0.5 rounded-full font-semibold">1km内选单</span>
+                    <span className="bg-orange-500 text-white text-[9px] px-2.5 py-0.5 rounded-full font-semibold">地标选定</span>
+                    <span className="bg-orange-500 text-white text-[9px] px-2.5 py-0.5 rounded-full font-semibold">5秒速推</span>
+                  </div>
+                  <p className="text-gray-600 text-[9px]">
+                    点击"我的" 🧑‍🎓 登录或注册开始体验5秒速推
+                  </p>
+                </div>
+              </div>
+
+              {/* Mobile Stats Cards - scrolls with content */}
+              <div className="md:hidden bg-white px-4 py-3 rounded-xl shadow-sm mb-2">
+                <div className="flex gap-3">
+                  <div className="flex-1 bg-gray-50 rounded-lg p-3">
+                    <div className="text-[10px] text-gray-400 mb-1">本次查询 / 订单总数</div>
+                    <div className="text-lg font-bold text-gray-800 font-mono">{filteredOrders.length} / {stats.totalOrders}</div>
+                  </div>
+                  <div className="flex-1 bg-gray-50 rounded-lg p-3">
+                    <div className="text-[10px] text-gray-400 mb-1">最后更新</div>
+                    <div className="text-sm font-bold text-gray-800 font-mono">{stats.lastUpdated}</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Mobile Filter Bar - scrolls with content */}
+              <div className="md:hidden bg-white px-4 py-3 rounded-xl shadow-sm mb-2 space-y-3">
+                {/* Dropdowns */}
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => {
+                      setIsDistrictDropdownOpen(!isDistrictDropdownOpen);
+                      setIsGradeDropdownOpen(false);
+                      setIsSubjectDropdownOpen(false);
+                      setTempDistricts(selectedDistricts);
+                    }}
+                    className={`flex-1 px-3 py-2.5 border rounded text-sm flex items-center justify-center gap-1 font-medium ${
+                      selectedDistricts.length > 0 
+                        ? 'border-orange-500 bg-orange-50/30 text-orange-700' 
+                        : 'bg-gray-50 border-gray-200 text-gray-600'
+                    }`}
+                  >
+                    <span>{selectedDistricts.length === 0 ? '选择地区' : `地区(${selectedDistricts.length})`}</span>
+                    <ChevronDown className="w-3 h-3 text-gray-400" />
+                  </button>
+                  <button
+                    onClick={() => {
+                      setIsGradeDropdownOpen(!isGradeDropdownOpen);
+                      setIsDistrictDropdownOpen(false);
+                      setIsSubjectDropdownOpen(false);
+                      setTempGrades(selectedGrades);
+                    }}
+                    className={`flex-1 px-3 py-2.5 border rounded text-sm flex items-center justify-center gap-1 font-medium ${
+                      selectedGrades.length > 0
+                        ? 'border-orange-500 bg-orange-50/30 text-orange-700'
+                        : 'bg-gray-50 border-gray-200 text-gray-600'
+                    }`}
+                  >
+                    <span>{selectedGrades.length === 0 ? '选择年级' : `年级(${selectedGrades.length})`}</span>
+                    <ChevronDown className="w-3 h-3 text-gray-400" />
+                  </button>
+                  <button
+                    onClick={() => {
+                      setIsSubjectDropdownOpen(!isSubjectDropdownOpen);
+                      setIsDistrictDropdownOpen(false);
+                      setIsGradeDropdownOpen(false);
+                      setTempSubjects(selectedSubjects);
+                    }}
+                    className={`flex-1 px-3 py-2.5 border rounded text-sm flex items-center justify-center gap-1 font-medium ${
+                      selectedSubjects.length > 0
+                        ? 'border-orange-500 bg-orange-50/30 text-orange-700'
+                        : 'bg-gray-50 border-gray-200 text-gray-600'
+                    }`}
+                  >
+                    <span>{selectedSubjects.length === 0 ? '选择科目' : `科目(${selectedSubjects.length})`}</span>
+                    <ChevronDown className="w-3 h-3 text-gray-400" />
+                  </button>
+                </div>
+                {/* Search Box */}
+                <div className="flex gap-2">
+                  <div className="flex-1 relative">
+                    <input
+                      type="text"
+                      placeholder="多词搜索(如浦东 周中 英语)..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="w-full pl-8 pr-4 py-2.5 bg-gray-100 border-none rounded text-sm focus:ring-1.5 focus:ring-green-500 focus:bg-white text-gray-800 placeholder-gray-400 focus:outline-none"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          setAppliedSearchQuery(searchQuery);
+                        }
+                      }}
+                    />
+                    <Search className="w-4 h-4 absolute left-2.5 top-2.5 text-gray-400" />
+                    {searchQuery && (
+                      <button onClick={() => setSearchQuery('')} className="absolute right-2.5 top-2.5 text-gray-400 hover:text-gray-600 p-0.5 rounded-full">
+                        <X className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                  <button 
+                    onClick={() => setAppliedSearchQuery(searchQuery)}
+                    className="px-5 py-2.5 bg-green-500 text-white rounded text-sm font-bold hover:bg-green-600 transition-colors shrink-0 flex items-center gap-1"
+                  >
+                    <Search className="w-4 h-4" />
+                    搜索
+                  </button>
+                </div>
+                {/* Quick Filter Tags */}
+                <div className="flex items-center gap-2">
+                  <button onClick={() => setTagOnline(!tagOnline)} className={`flex-1 px-3 py-2 rounded-full text-sm font-semibold transition-all ${tagOnline ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>线上</button>
+                  <button onClick={() => setTagCollege(!tagCollege)} className={`flex-1 px-3 py-2 rounded-full text-sm font-semibold transition-all ${tagCollege ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>大学生</button>
+                  <button onClick={() => setTagHighPrice(!tagHighPrice)} className={`flex-1 px-3 py-2 border rounded-full text-sm font-semibold transition-all flex items-center justify-center gap-0.5 ${tagHighPrice ? 'bg-orange-500 text-white border-orange-500' : 'bg-gray-100 text-gray-600 border border-gray-200 hover:bg-gray-200'}`}>高价单 🔥</button>
+                  <button onClick={handleOpenAdvancedModal} className="flex-1 px-3 py-2 bg-blue-500 text-white rounded-full text-sm font-semibold hover:bg-blue-600 transition-colors flex items-center justify-center gap-1 shadow-sm">
+                    <SlidersHorizontal className="w-4 h-4" />
+                    <span>高级</span>
+                  </button>
+                </div>
+                {/* Location Info */}
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-gray-400">老师地址</span>
+                  <span className="text-gray-700 font-medium">{currentLandmark ? currentLandmark.name : '未绑定地址'}</span>
+                  <button onClick={() => setIsLandmarkModalOpen(true)} className="text-blue-500 hover:text-blue-600 text-xs">修改</button>
+                </div>
+              </div>
+
+              {/* Dropdown panels for mobile */}
+              {isDistrictDropdownOpen && (
+                <div className="md:hidden absolute top-16 left-4 right-4 bg-white border border-gray-200 rounded-xl shadow-xl p-4 z-50">
+                  <div className="flex justify-between items-center mb-2 border-b border-gray-100 pb-2">
+                    <label className="flex items-center gap-1.5 text-sm text-gray-500 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={tempDistricts.length === SHANGHAI_DISTRICTS.length}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setTempDistricts([...SHANGHAI_DISTRICTS]);
+                          } else {
+                            setTempDistricts([]);
+                          }
+                        }}
+                        className="rounded text-orange-500 focus:ring-orange-400 border-gray-300 w-3.5 h-3.5"
+                      />
+                      <span>全选</span>
+                    </label>
+                  </div>
+                  <div className="grid grid-cols-3 gap-1.5 max-h-44 overflow-y-auto mb-3">
+                    {SHANGHAI_DISTRICTS.map((item) => {
+                      const isChecked = tempDistricts.includes(item);
+                      return (
+                        <button
+                          key={item}
+                          onClick={() => toggleTempDistrict(item)}
+                          className={`py-1.5 text-center rounded text-sm font-sans border transition-all truncate px-1 ${
+                            isChecked
+                              ? 'bg-orange-500 text-white border-orange-500 font-semibold'
+                              : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'
+                          }`}
+                        >
+                          {item.replace('区', '').replace('新区', '')}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="flex justify-end gap-2 border-t border-gray-100 pt-2">
+                    <button onClick={handleDistrictReset} className="px-3 py-1.5 text-sm text-gray-500 border border-gray-200 hover:bg-gray-50 rounded">重置</button>
+                    <button onClick={handleDistrictConfirm} className="px-4 py-1.5 text-sm bg-orange-500 text-white rounded hover:bg-orange-600 shadow-sm font-semibold">确定</button>
+                  </div>
+                </div>
+              )}
+              {isGradeDropdownOpen && (
+                <div className="md:hidden absolute top-16 left-4 right-4 bg-white border border-gray-200 rounded-xl shadow-xl p-4 z-50">
+                  <div className="flex justify-between items-center mb-2 border-b border-gray-100 pb-2">
+                    <label className="flex items-center gap-1.5 text-sm text-gray-500 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={tempGrades.length === GRADES.length}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setTempGrades([...GRADES]);
+                          } else {
+                            setTempGrades([]);
+                          }
+                        }}
+                        className="rounded text-orange-500 focus:ring-orange-400 border-gray-300 w-3.5 h-3.5"
+                      />
+                      <span>全选</span>
+                    </label>
+                  </div>
+                  <div className="grid grid-cols-3 gap-1.5 max-h-44 overflow-y-auto mb-3">
+                    {GRADES.map((item) => {
+                      const isChecked = tempGrades.includes(item);
+                      return (
+                        <button
+                          key={item}
+                          onClick={() => toggleTempGrade(item)}
+                          className={`py-1 rounded text-[11px] text-center border transition-all ${
+                            isChecked
+                              ? 'bg-orange-500 text-white border-orange-500 font-semibold'
+                              : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'
+                          }`}
+                        >
+                          {item}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="flex justify-end gap-2 border-t border-gray-100 pt-2">
+                    <button onClick={handleGradeReset} className="px-2.5 py-1 text-[11px] text-gray-500 border border-gray-200 hover:bg-gray-50 rounded">重置</button>
+                    <button onClick={handleGradeConfirm} className="px-3.5 py-1 text-[11px] bg-orange-500 text-white rounded hover:bg-orange-600 shadow-sm font-semibold">确定</button>
+                  </div>
+                </div>
+              )}
+              {isSubjectDropdownOpen && (
+                <div className="md:hidden absolute top-16 left-4 right-4 bg-white border border-gray-200 rounded-xl shadow-xl p-4 z-50">
+                  <div className="flex justify-between items-center mb-2 border-b border-gray-100 pb-2">
+                    <label className="flex items-center gap-1.5 text-sm text-gray-500 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={tempSubjects.length === SUBJECTS.length}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setTempSubjects([...SUBJECTS]);
+                          } else {
+                            setTempSubjects([]);
+                          }
+                        }}
+                        className="rounded text-orange-500 focus:ring-orange-400 border-gray-300 w-3.5 h-3.5"
+                      />
+                      <span>全选</span>
+                    </label>
+                  </div>
+                  <div className="grid grid-cols-3 gap-1.5 max-h-44 overflow-y-auto mb-3">
+                    {SUBJECTS.map((item) => {
+                      const isChecked = tempSubjects.includes(item);
+                      return (
+                        <button
+                          key={item}
+                          onClick={() => toggleTempSubject(item)}
+                          className={`py-1 text-center rounded text-[11px] border transition-all ${
+                            isChecked
+                              ? 'bg-orange-500 text-white border-orange-500 font-semibold'
+                              : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'
+                          }`}
+                        >
+                          {item}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="flex justify-end gap-2 border-t border-gray-100 pt-2">
+                    <button onClick={handleSubjectReset} className="px-2.5 py-1 text-[11px] text-gray-500 border border-gray-200 hover:bg-gray-50 rounded">重置</button>
+                    <button onClick={handleSubjectConfirm} className="px-3.5 py-1 text-[11px] bg-orange-500 text-white rounded hover:bg-orange-600 shadow-sm font-semibold">确定</button>
+                  </div>
+                </div>
+              )}
+
               <div className="flex justify-between items-center px-1 mb-0.5 select-none shrink-0">
-                <div className="text-[10px] text-gray-400 font-mono">
+                <div className="text-sm text-gray-400 font-mono">
                   为您匹配到相关符合条件的家教需求: <b className="text-gray-700 font-bold">{filteredOrders.length}</b> 个
                 </div>
-                <div className="text-[9px] text-gray-400">已自动按距离由近至远进行排序</div>
+                <div className="text-sm text-gray-400">已自动按距离由近至远进行排序</div>
               </div>
 
               {filteredOrders.length === 0 ? (
@@ -1281,13 +1520,13 @@ export default function App() {
                   <div className="p-4 bg-gray-100 rounded-full text-gray-400 mb-3 animate-bounce">
                     <ListFilter className="w-8 h-8" />
                   </div>
-                  <h4 className="font-bold text-gray-700 text-sm">暂无符合筛选条件的家教订单</h4>
-                  <p className="text-[10px] text-gray-400 max-w-xs mt-1.5 leading-relaxed">
+                  <h4 className="font-bold text-gray-700 text-base">暂无符合筛选条件的家教订单</h4>
+                  <p className="text-sm text-gray-400 max-w-xs mt-1.5 leading-relaxed">
                     您可以尝试减少行政区划勾选、调低高级筛选中的“最低时薪门槛”，或者扩大“搜索公里半径”范围，甚至一键重置筛选!
                   </p>
                   <button
                     onClick={handleResetAllFilters}
-                    className="mt-4 px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded text-xs font-bold transition-all shadow-sm shadow-orange-500/10"
+                    className="mt-4 px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded text-base font-bold transition-all shadow-sm shadow-orange-500/10"
                   >
                     重置所有筛选参数
                   </button>
@@ -1332,74 +1571,84 @@ export default function App() {
                     >
                       {/* Active tag ribbon or Flame symbol */}
                       {order.isHighPrice && (
-                        <span className="absolute top-0 right-0 bg-red-500 text-white text-[8px] font-bold px-1.5 py-0.5 rounded-tr-md rounded-bl-md z-10 flex items-center gap-0.5">
+                        <span className="absolute top-0 right-0 bg-red-500 text-white text-xs font-bold px-2 py-1 rounded-tr-md rounded-bl-md z-10 flex items-center gap-0.5">
                           <span>高价 🔥</span>
                         </span>
                       )}
 
-                      <div className="flex justify-between items-start mb-2.5">
-                        <div className="flex flex-col min-w-0 max-w-[70%]">
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-[9px] text-gray-400 font-mono uppercase tracking-wider">{order.id}</span>
-                            <span className="text-[9px] text-gray-400">|</span>
-                            <span className="text-[9px] text-gray-400">{order.publishTime}</span>
+                      <div className="flex justify-between items-start mb-3">
+                        <div className="flex items-center gap-2 flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="text-gray-400 text-xs"> </span>
+                            <span className="text-gray-800 font-bold font-mono text-sm">{order.idLine || order.id}</span>
                           </div>
-                          
-                          <h3 className="text-sm font-bold text-neutral-850 mt-1 flex items-center gap-1.5 leading-snug">
-                            <span className="bg-orange-50 text-orange-600 px-1 rounded text-[10px] shrink-0 font-sans">{order.district}</span>
-                            <span className="text-neutral-900 font-bold">{order.grade}授课</span>
-                            <span className="text-gray-300">/</span>
-                            <span className="text-orange-500 font-extrabold">{order.subject}</span>
-                          </h3>
+                          <button 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              navigator.clipboard.writeText(order.id);
+                            }}
+                            className="flex items-center gap-1 px-2 py-1 bg-gray-100 rounded text-xs text-gray-500 hover:bg-gray-200 transition-colors"
+                          >
+                            <Copy className="w-3 h-3" />
+                            复制
+                          </button>
                         </div>
-
-                        <div className="text-right shrink-0">
-                          <div className="text-orange-600 font-black text-base flex items-baseline justify-end leading-none">
-                            {order.isNegotiable ? (
-                              <span className="text-[11px] font-semibold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded leading-none shrink-0 border border-emerald-100">教员报价</span>
-                            ) : (
-                              <>
-                                <span className="text-xs font-normal">¥</span>
-                                <span className="text-lg font-sans tabular-nums mx-0.5">{order.price}</span>
-                                <span className="text-[9px] font-normal text-gray-500">/h</span>
-                              </>
-                            )}
-                          </div>
-                          {hasDistance && (
-                            <div className="text-[10px] text-neutral-400 mt-1 font-mono tracking-tight">
+                      </div>
+                      
+                      <div className="flex flex-wrap items-center gap-2 mb-3 text-sm">
+                        <span className="text-gray-600">{order.district}</span>
+                        <span className="text-gray-300">|</span>
+                        <span className="text-gray-600">{order.grade}</span>
+                        <span className="text-gray-300">|</span>
+                        <span className="text-gray-600">{order.subject}</span>
+                        {hasDistance && (
+                          <>
+                            <span className="text-gray-300">|</span>
+                            <span className="flex items-center gap-1 text-gray-500">
+                              <MapPin className="w-3 h-3 text-gray-400" />
                               {distanceStr}
-                            </div>
+                            </span>
+                          </>
+                        )}
+                        <span className="text-green-600 font-medium">{order.contactTeacher}</span>
+                        <span className="text-green-600">💬</span>
+                      </div>
+                      
+                      {/* Raw content display */}
+                      <div className="mb-3 px-3 py-3 bg-gray-50 rounded-lg text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">
+                        {order.rawContent || order.studentDetail}
+                      </div>
+                      
+                      {/* Price and action */}
+                      <div className="flex justify-between items-center pt-3 border-t border-gray-100">
+                        <div className="text-orange-600 font-bold text-xl">
+                          {order.price === 0 ? (
+                            <span className="text-base font-semibold text-emerald-600">老师合理报价</span>
+                          ) : order.isNegotiable ? (
+                            <span className="text-base font-semibold text-emerald-600">教员报价</span>
+                          ) : (
+                            <>
+                              <span className="text-base font-normal">¥</span>
+                              <span className="text-2xl">{order.price}</span>
+                              <span className="text-sm text-gray-500">/h</span>
+                            </>
                           )}
                         </div>
-                      </div>
-
-                      {/* Summary details list */}
-                      <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-gray-600 mb-3 font-sans leading-tight border-b border-gray-50 pb-2 bg-neutral-50 p-2 rounded">
-                        <div className="truncate"><span className="text-gray-400">频次:</span> {order.frequency}</div>
-                        <div className="truncate"><span className="text-gray-400">情况:</span> {order.studentDesc}</div>
-                        <div className="col-span-2 truncate"><span className="text-gray-400">住址:</span> {order.address}</div>
-                        <div className="col-span-2 px-1.5 py-0.5 bg-blue-50/70 border border-blue-100/40 text-blue-700 rounded text-[10px] font-medium leading-relaxed truncate mt-1">
-                          要求: {order.requirements}
-                        </div>
-                      </div>
-
-                      <div className="flex justify-between items-center text-xs shrink-0 pt-0.5">
-                        <div className="flex items-center gap-1.5">
-                          <div className="w-5 h-5 bg-purple-100 text-purple-600 rounded-full flex items-center justify-center text-[10px] font-bold border border-purple-200">
-                            {order.contactTeacher[0]}
-                          </div>
-                          <span className="text-[11px] text-gray-550 font-medium">
-                            小德 (对接老师)
-                          </span>
-                        </div>
                         <button 
-                          className={`px-3 py-1 rounded text-[11px] font-bold transition-all shadow-sm ${
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedOrderId(order.id);
+                            if (window.innerWidth < 768) {
+                              setIsMobileDetailModalOpen(true);
+                            }
+                          }}
+                          className={`px-4 py-2 rounded text-sm font-bold transition-all ${
                             isActive 
-                              ? 'bg-orange-500 text-white shadow-orange-500/10' 
+                              ? 'bg-orange-500 text-white' 
                               : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                           }`}
                         >
-                          {isActive ? '正在查看' : '查看详情'}
+                          {isActive ? '查看中' : '详情'}
                         </button>
                       </div>
 
@@ -1523,10 +1772,7 @@ export default function App() {
                             <CheckCircle2 className="w-3.5 h-3.5 text-blue-600 shrink-0 mt-0.5" />
                             <span>{selectedOrder.requirements}</span>
                           </li>
-                          <li className="flex items-start gap-1.5 border-t border-blue-100/40 pt-1.5 mt-1.5 text-[10px] text-blue-700">
-                            <Info className="w-3.5 h-3.5 text-blue-500 shrink-0 mt-0.5" />
-                            <span>温馨提示：接单需保证课时稳定性，凡复旦、同济、交大等校舍距离相差30分钟内者优先考虑。</span>
-                          </li>
+
                         </ul>
                       </div>
 
@@ -1583,6 +1829,7 @@ export default function App() {
             maxDistance={advancedFilters.maxDistance}
             onModifyLandmark={() => setIsLandmarkModalOpen(true)}
             activeTab={activeTab}
+            onUpdateLandmark={setCurrentLandmark}
           />
         )}
 
@@ -1602,8 +1849,8 @@ export default function App() {
               : 'text-gray-400 hover:text-gray-600'
           }`}
         >
-          <ListFilter className="w-4.5 h-4.5 stroke-[2]" />
-          <span className="text-[10px] font-bold uppercase tracking-wider">找家教(常规列表)</span>
+          <ListFilter className="w-5 h-5 stroke-[2]" />
+          <span className="text-sm font-bold uppercase tracking-wider">找家教(常规列表)</span>
         </button>
 
         <button
@@ -1615,8 +1862,8 @@ export default function App() {
               : 'text-gray-400 hover:text-gray-600'
           }`}
         >
-          <Map className="w-4.5 h-4.5 stroke-[2]" />
-          <span className="text-[10px] font-bold uppercase tracking-wider">附近家教(地图视图)</span>
+          <Map className="w-5 h-5 stroke-[2]" />
+          <span className="text-sm font-bold uppercase tracking-wider">附近家教(地图视图)</span>
         </button>
       </footer>
 
@@ -1722,78 +1969,6 @@ export default function App() {
                 >
                   <div className={`w-4 h-4 rounded-full bg-white shadow-sm transform transition-transform duration-150 ${tempAdvancedFilters.includeUnpriced ? 'translate-x-5' : 'translate-x-0'}`} />
                 </button>
-              </div>
-
-              {/* 4. More Options collapsible panel foldout */}
-              <div className="space-y-1">
-                <button
-                  onClick={() => setIsMoreOptionsExpanded(!isMoreOptionsExpanded)}
-                  className="text-[10.5px] text-gray-500 hover:text-orange-600 font-bold flex items-center gap-1 transition-colors relative"
-                >
-                  <span>{isMoreOptionsExpanded ? '折叠收起更多高级选项' : '展开显示更多高级人口过滤'}</span>
-                  <ChevronDown className={`w-3.5 h-3.5 transform transition-transform ${isMoreOptionsExpanded ? 'rotate-180' : 'rotate-0'}`} />
-                </button>
-
-                {isMoreOptionsExpanded && (
-                  <div className="pt-2 space-y-3.5 border-t border-gray-100 mt-2 animate-slide-down">
-                    
-                    {/* Gender restrictions choice */}
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-semibold text-gray-500 uppercase block">教员性别硬性要求:</label>
-                      <div className="grid grid-cols-3 gap-1.5">
-                        {[
-                          { id: 'all', label: '不限' },
-                          { id: 'male', label: '限男生/学长' },
-                          { id: 'female', label: '限女生/学姐' }
-                        ].map(item => (
-                          <button
-                            key={item.id}
-                            onClick={() => setTempAdvancedFilters({
-                              ...tempAdvancedFilters,
-                              genderRequirement: item.id as any
-                            })}
-                            className={`py-1 rounded text-[10px] font-medium border text-center transition-all ${
-                              tempAdvancedFilters.genderRequirement === item.id
-                                ? 'bg-orange-500 text-white border-orange-500'
-                                : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'
-                            }`}
-                          >
-                            {item.label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* School Age classification selection */}
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-semibold text-gray-500 uppercase block">学生学级分类限制:</label>
-                      <div className="grid grid-cols-4 gap-1.5">
-                        {[
-                          { id: 'all', label: '全部' },
-                          { id: 'primary', label: '小学' },
-                          { id: 'middle', label: '初中' },
-                          { id: 'high', label: '高中' }
-                        ].map(item => (
-                          <button
-                            key={item.id}
-                            onClick={() => setTempAdvancedFilters({
-                              ...tempAdvancedFilters,
-                              gradeLevel: item.id as any
-                            })}
-                            className={`py-1 rounded text-[10px] font-medium border text-center transition-all ${
-                              tempAdvancedFilters.gradeLevel === item.id
-                                ? 'bg-orange-500 text-white border-orange-500'
-                                : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'
-                            }`}
-                          >
-                            {item.label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                  </div>
-                )}
               </div>
 
             </div>

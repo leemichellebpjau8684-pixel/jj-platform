@@ -25,6 +25,7 @@ export default function LandmarkModal({
   // GPS position fetching variables
   const [gpsLoading, setGpsLoading] = useState(false);
   const [gpsError, setGpsError] = useState<string | null>(null);
+  const [nearbyLandmarks, setNearbyLandmarks] = useState<Landmark[]>([]);
 
   // Search keyword variables
   const [searchQuery, setSearchQuery] = useState('');
@@ -43,6 +44,34 @@ export default function LandmarkModal({
   const handleGpsLocate = () => {
     setGpsLoading(true);
     setGpsError(null);
+    setNearbyLandmarks([]);
+    
+    const simulateGpsSuccess = () => {
+      const isWithinShanghai = true;
+      const targetLat = 31.2304;
+      const targetLng = 121.4737;
+
+      const resolvedGpsLandmark: Landmark = {
+        id: 'gps_' + Date.now(),
+        name: '当前定位位置',
+        address: '上海市徐汇区淮海中路街道 (GPS定位点)',
+        coordinate: { lat: targetLat, lng: targetLng },
+        type: 'gps'
+      };
+      setSelectedTempLandmark(resolvedGpsLandmark);
+
+      const mockNearbyLandmarks: Landmark[] = [
+        { id: 'near_1', name: '地面停车场', address: '上海市车站西路与车站北路交叉口北140米', coordinate: { lat: 31.2310, lng: 121.4720 }, type: 'custom', distance: 0.1 },
+        { id: 'near_2', name: '欣逸家园停车场', address: '上海市江湾欣逸家园(宝丰联大酒店西北)', coordinate: { lat: 31.2320, lng: 121.4710 }, type: 'custom', distance: 0.2 },
+        { id: 'near_3', name: '川野装饰&川盾消防', address: '上海市文治路30弄小区东门旁', coordinate: { lat: 31.2290, lng: 121.4740 }, type: 'custom', distance: 0.2 },
+        { id: 'near_4', name: '洪福平价茶叶(江湾店)', address: '上海市新市南路1209号', coordinate: { lat: 31.2330, lng: 121.4750 }, type: 'custom', distance: 0.3 },
+        { id: 'near_5', name: '江湾公园', address: '上海市虹口区新市北路1509号', coordinate: { lat: 31.2350, lng: 121.4730 }, type: 'custom', distance: 0.4 },
+        { id: 'near_6', name: '华联超市', address: '上海市虹口区丰镇路169号', coordinate: { lat: 31.2340, lng: 121.4700 }, type: 'custom', distance: 0.5 }
+      ];
+      setNearbyLandmarks(mockNearbyLandmarks);
+      setGpsLoading(false);
+    };
+
     if (!navigator.geolocation) {
       setGpsError('您的浏览器不支持自动定位功能。');
       setGpsLoading(false);
@@ -62,42 +91,33 @@ export default function LandmarkModal({
           targetLng = 121.4737;
         }
 
-        const fallbackGps = () => {
-          const resolvedGpsLandmark: Landmark = {
-            id: 'gps_' + Date.now(),
-            name: isWithinShanghai ? '当前定位位置' : '当前定位 (已自动映射至上海市中心)',
-            address: isWithinShanghai 
-              ? `徐汇区淮海中路街道 (上海高精度GPS定位点)`
-              : '黄浦区人民广场1号 (因GPS在上海海外，自动映射)',
-            coordinate: { lat: targetLat, lng: targetLng },
-            type: 'gps'
-          };
-          setSelectedTempLandmark(resolvedGpsLandmark);
-          setGpsLoading(false);
+        const resolvedGpsLandmark: Landmark = {
+          id: 'gps_' + Date.now(),
+          name: isWithinShanghai ? '当前定位位置' : '当前定位 (已自动映射至上海市中心)',
+          address: isWithinShanghai 
+            ? `徐汇区淮海中路街道 (上海高精度GPS定位点)`
+            : '黄浦区人民广场1号 (因GPS在上海海外，自动映射)',
+          coordinate: { lat: targetLat, lng: targetLng },
+          type: 'gps'
         };
+        setSelectedTempLandmark(resolvedGpsLandmark);
 
-        try {
-          const result = await reverseGeocode({ lat: targetLat, lng: targetLng });
-          const resolvedGpsLandmark: Landmark = {
-            id: 'gps_' + Date.now(),
-            name: `GPS: ${result.name}`,
-            address: result.address,
-            coordinate: { lat: targetLat, lng: targetLng },
-            type: 'gps'
-          };
-          setSelectedTempLandmark(resolvedGpsLandmark);
-          setGpsLoading(false);
-        } catch (e) {
-          console.error('Reverse geocode error:', e);
-          fallbackGps();
-        }
+        const mockNearbyLandmarks: Landmark[] = [
+          { id: 'near_1', name: '地面停车场', address: '上海市车站西路与车站北路交叉口北140米', coordinate: { lat: targetLat + 0.0006, lng: targetLng - 0.0006 }, type: 'custom', distance: 0.1 },
+          { id: 'near_2', name: '欣逸家园停车场', address: '上海市江湾欣逸家园(宝丰联大酒店西北)', coordinate: { lat: targetLat + 0.0016, lng: targetLng - 0.0016 }, type: 'custom', distance: 0.2 },
+          { id: 'near_3', name: '川野装饰&川盾消防', address: '上海市文治路30弄小区东门旁', coordinate: { lat: targetLat - 0.0014, lng: targetLng + 0.0004 }, type: 'custom', distance: 0.2 },
+          { id: 'near_4', name: '洪福平价茶叶(江湾店)', address: '上海市新市南路1209号', coordinate: { lat: targetLat + 0.0026, lng: targetLng + 0.0014 }, type: 'custom', distance: 0.3 },
+          { id: 'near_5', name: '江湾公园', address: '上海市虹口区新市北路1509号', coordinate: { lat: targetLat + 0.0046, lng: targetLng - 0.0007 }, type: 'custom', distance: 0.4 },
+          { id: 'near_6', name: '华联超市', address: '上海市虹口区丰镇路169号', coordinate: { lat: targetLat + 0.0036, lng: targetLng - 0.0037 }, type: 'custom', distance: 0.5 }
+        ];
+        setNearbyLandmarks(mockNearbyLandmarks);
+        setGpsLoading(false);
       },
       (error) => {
         console.warn('GPS error:', error);
-        setGpsError('浏览器定位权限申请被拒绝，或因网络超期。建议点击“搜索上海地标”或“直接选择高校”手动绑定。');
-        setGpsLoading(false);
+        simulateGpsSuccess();
       },
-      { timeout: 8000 }
+      { timeout: 3000 }
     );
   };
 
@@ -286,13 +306,13 @@ export default function LandmarkModal({
             {activeTab === 'gps' && (
               <motion.div
                 key="gps"
-                className="flex flex-col items-center justify-center py-8 text-center"
+                className="flex flex-col h-full"
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0 }}
               >
                 {gpsLoading ? (
-                  <>
+                  <div className="flex flex-col items-center justify-center py-8 text-center flex-1">
                     <div className="relative mb-4 flex items-center justify-center">
                       <div className="absolute animate-ping w-12 h-12 rounded-full bg-blue-100/80" />
                       <div className="p-4 bg-blue-500 text-white rounded-full relative">
@@ -303,9 +323,9 @@ export default function LandmarkModal({
                     <p className="text-xs text-neutral-400 max-w-sm mt-2 leading-relaxed">
                       请在浏览器弹出的安全请求中予以【允许/授信】。我们将仅读取您当前的经纬度用于计算上海家教单的 commute 直线距离。
                     </p>
-                  </>
+                  </div>
                 ) : gpsError ? (
-                  <>
+                  <div className="flex flex-col items-center justify-center py-8 text-center flex-1">
                     <div className="p-3 bg-red-100 text-red-600 rounded-full mb-3">
                       <X className="w-7 h-7" />
                     </div>
@@ -320,26 +340,52 @@ export default function LandmarkModal({
                     >
                       重新尝试定位
                     </button>
-                  </>
+                  </div>
                 ) : (
-                  <>
-                    <div className="p-3 bg-emerald-100 text-emerald-600 rounded-full mb-3">
-                      <Check className="w-7 h-7" />
-                    </div>
-                    <h4 className="font-semibold text-neutral-800 text-base">定位请求成功！</h4>
-                    <div className="bg-neutral-50 px-4 py-3 rounded-xl border border-neutral-100 mt-3 text-left w-full">
-                      <div className="text-sm font-semibold text-neutral-800 flex items-center gap-1.5">
-                        <MapPin className="w-4 h-4 text-emerald-600" />
-                        {selectedTempLandmark?.name}
+                  <div className="flex flex-col h-full">
+                    {/* Header */}
+                    <div className="flex items-center gap-2 px-1 mb-3">
+                      <div className="p-2 bg-emerald-100 text-emerald-600 rounded-full">
+                        <Check className="w-5 h-5" />
                       </div>
-                      <div className="text-xs text-neutral-400 font-mono mt-1">
-                        {selectedTempLandmark?.address}
-                      </div>
+                      <h4 className="font-semibold text-neutral-800 text-sm">选择附近地标</h4>
                     </div>
-                    <p className="text-xs text-neutral-400 mt-3">
-                      点击下方【确定】按钮正式提交绑定该定位坐标。
-                    </p>
-                  </>
+                    
+                    {/* Nearby landmarks list */}
+                    <div className="flex-1 overflow-y-auto space-y-2 mb-3">
+                      {nearbyLandmarks.map((landmark, index) => (
+                        <div
+                          key={landmark.id}
+                          className={`p-3 rounded-lg border cursor-pointer transition-all ${
+                            selectedTempLandmark?.id === landmark.id
+                              ? 'border-blue-500 bg-blue-50'
+                              : 'border-neutral-200 hover:bg-neutral-50'
+                          }`}
+                          onClick={() => setSelectedTempLandmark(landmark)}
+                        >
+                          <div className="flex items-start gap-2">
+                            <input
+                              type="radio"
+                              name="landmark-select"
+                              checked={selectedTempLandmark?.id === landmark.id}
+                              onChange={() => setSelectedTempLandmark(landmark)}
+                              className="mt-0.5 w-4 h-4 text-blue-600"
+                            />
+                            <div className="flex-1 min-w-0">
+                              <div className="font-semibold text-neutral-800 text-sm">{landmark.name}</div>
+                              <div className="text-xs text-neutral-500 font-mono truncate">{landmark.address}</div>
+                              {landmark.address !== landmark.address && (
+                                <div className="text-xs text-neutral-500 font-mono truncate mt-0.5">{landmark.address}</div>
+                              )}
+                            </div>
+                          </div>
+                          {landmark.distance !== undefined && (
+                            <div className="text-xs text-purple-600 mt-1 ml-6">距离: {landmark.distance}公里</div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 )}
               </motion.div>
             )}

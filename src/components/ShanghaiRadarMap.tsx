@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useMemo } from 'react';
-import { Compass, RotateCcw } from 'lucide-react';
-import { Landmark, Order } from '../types';
-import { loadAMapScript, AMAP_CONFIG, forwardGeocode } from '../services/amap';
+import { Compass, RotateCcw, MapPin, Navigation, Search, X } from 'lucide-react';
+import { Landmark, Order, Coordinate } from '../types';
+import { loadAMapScript, AMAP_CONFIG, forwardGeocode, reverseGeocode } from '../services/amap';
 
 interface ShanghaiRadarMapProps {
   currentLandmark: Landmark | null;
@@ -11,6 +11,7 @@ interface ShanghaiRadarMapProps {
   maxDistance: number;
   onModifyLandmark: () => void;
   activeTab: 'list' | 'map';
+  onUpdateLandmark: (landmark: Landmark) => void;
 }
 
 export default function ShanghaiRadarMap({
@@ -21,12 +22,18 @@ export default function ShanghaiRadarMap({
   maxDistance,
   onModifyLandmark,
   activeTab,
+  onUpdateLandmark,
 }: ShanghaiRadarMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<any>(null);
   
   const [isLoaded, setIsLoaded] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  
+  const [userAddressInput, setUserAddressInput] = useState('');
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [showManualLocation, setShowManualLocation] = useState(false);
 
   // Cache to map student text addresses to true geocoded Lat/Lng to prevent shifting/wrong locations
   const [geocodedCache, setGeocodedCache] = useState<Record<string, { lat: number; lng: number }>>({});
@@ -41,6 +48,88 @@ export default function ShanghaiRadarMap({
 
   // Selected & Hovered trackers
   const [selectedMapOrder, setSelectedMapOrder] = useState<Order | null>(null);
+
+  const handleSearchAddress = async () => {
+    if (!userAddressInput.trim()) {
+      setSearchError('请输入地址');
+      return;
+    }
+    
+    setIsSearching(true);
+    setSearchError(null);
+    
+    try {
+      const result = await forwardGeocode(userAddressInput.trim(), { district: '上海市' });
+      const newLandmark: Landmark = {
+        id: 'custom_' + Date.now(),
+        name: result.name || userAddressInput.trim(),
+        address: result.address,
+        coordinate: result.coordinate,
+        type: 'custom',
+      };
+      
+      onUpdateLandmark(newLandmark);
+      setUserAddressInput('');
+      setShowManualLocation(false);
+      
+      if (mapRef.current) {
+        mapRef.current.panTo([result.coordinate.lng, result.coordinate.lat]);
+        mapRef.current.setZoom(14);
+      }
+    } catch (error) {
+      setSearchError('无法找到该地址，请尝试更详细的地址');
+      console.error('Geocode error:', error);
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  const handleGpsLocate = async () => {
+    setIsSearching(true);
+    setSearchError(null);
+    
+    if (!navigator.geolocation) {
+      setSearchError('您的浏览器不支持定位功能');
+      setIsSearching(false);
+      return;
+    }
+    
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const { latitude, longitude } = position.coords;
+        
+        try {
+          const result = await reverseGeocode({ lat: latitude, lng: longitude });
+          const newLandmark: Landmark = {
+            id: 'gps_' + Date.now(),
+            name: result.name || '当前定位位置',
+            address: result.address,
+            coordinate: { lat: latitude, lng: longitude },
+            type: 'gps',
+          };
+          
+          onUpdateLandmark(newLandmark);
+          setShowManualLocation(false);
+          
+          if (mapRef.current) {
+            mapRef.current.panTo([longitude, latitude]);
+            mapRef.current.setZoom(15);
+          }
+        } catch (error) {
+          setSearchError('无法解析当前位置');
+          console.error('Reverse geocode error:', error);
+        } finally {
+          setIsSearching(false);
+        }
+      },
+      (error) => {
+        setSearchError('定位失败，请检查定位权限设置');
+        console.error('GPS error:', error);
+        setIsSearching(false);
+      },
+      { timeout: 10000 }
+    );
+  };
 
   // Geocode any addresses that are not currently cached in the local state
   useEffect(() => {
@@ -236,33 +325,39 @@ export default function ShanghaiRadarMap({
 
     // 4. Place Student Tutor Order Icons (卫星精准落位)
     filteredOrders.forEach((order) => {
-      // Fetch precise coordinate from cache, fallback to seed coordinates to ensure resilience
       const coords = geocodedCacheRef.current[order.id] || order.coordinate;
       const isSelected = selectedOrderId === order.id;
 
       const orderContent = document.createElement('div');
-      orderContent.className = 'relative flex items-center justify-center';
+      orderContent.className = 'relative flex flex-col items-center justify-center';
+
+      const gradeText = order.grade.length > 2 ? order.grade.substring(0, 2) : order.grade;
+      const subjectText = order.subject.length > 3 ? order.subject.substring(0, 3) : order.subject;
 
       if (order.isHighPrice) {
-        // High price orders rendered as orange/red with a flame symbol
         orderContent.innerHTML = `
-          <div class="relative flex items-center justify-center cursor-pointer transition-all hover:scale-115">
-            ${isSelected ? '<div class="absolute w-10 h-10 bg-red-500/30 rounded-full animate-ping" style="animation-duration: 1.5s;"></div>' : ''}
-            <div class="w-6 h-6 bg-red-600 rounded-full border-2 border-orange-400 flex items-center justify-center shadow-lg transform transition hover:scale-110">
-              <span class="text-[10px] leading-none">🔥</span>
+          <div class="relative flex flex-col items-center cursor-pointer transition-all hover:scale-115">
+            ${isSelected ? '<div class="absolute w-12 h-12 bg-red-500/20 rounded-full animate-ping" style="animation-duration: 1.5s;"></div>' : ''}
+            <div class="w-7 h-7 bg-gradient-to-br from-red-500 to-orange-500 rounded-full border-2 border-white flex items-center justify-center shadow-lg shadow-red-500/30">
+              <span class="text-[10px]">🔥</span>
             </div>
-            ${isSelected ? '<div class="absolute -bottom-1 -right-1 bg-orange-500 w-2 h-2 rounded-full border border-white"></div>' : ''}
+            <div class="absolute -bottom-5 left-1/2 transform -translate-x-1/2 bg-green-600/95 text-white text-[9px] font-bold px-1.5 py-0.5 rounded whitespace-nowrap shadow-md">
+              ${gradeText}${subjectText}
+            </div>
+            ${isSelected ? '<div class="absolute -bottom-1 -right-1 bg-orange-500 w-2.5 h-2.5 rounded-full border-2 border-white shadow"></div>' : ''}
           </div>
         `;
       } else {
-        // Normal orders rendered as bright green dots
         orderContent.innerHTML = `
-          <div class="relative flex items-center justify-center cursor-pointer transition-all hover:scale-115">
-            ${isSelected ? '<div class="absolute w-8 h-8 bg-emerald-500/30 rounded-full animate-ping" style="animation-duration: 1.8s;"></div>' : ''}
-            <div class="w-4 h-4 bg-emerald-500 rounded-full border-2 border-white flex items-center justify-center shadow-md transform transition hover:scale-110">
-              <div class="w-1.5 h-1.5 bg-white rounded-full"></div>
+          <div class="relative flex flex-col items-center cursor-pointer transition-all hover:scale-115">
+            ${isSelected ? '<div class="absolute w-10 h-10 bg-green-500/20 rounded-full animate-ping" style="animation-duration: 1.8s;"></div>' : ''}
+            <div class="w-5 h-5 bg-green-500 rounded-full border-2 border-white flex items-center justify-center shadow-md shadow-green-500/30">
+              <div class="w-2 h-2 bg-white rounded-full"></div>
             </div>
-            ${isSelected ? '<div class="absolute -bottom-0.5 -right-0.5 bg-emerald-600 w-1.5 h-1.5 rounded-full border border-white"></div>' : ''}
+            <div class="absolute -bottom-5 left-1/2 transform -translate-x-1/2 bg-green-700/95 text-white text-[9px] font-bold px-1.5 py-0.5 rounded whitespace-nowrap shadow-md">
+              ${gradeText}${subjectText}
+            </div>
+            ${isSelected ? '<div class="absolute -bottom-0.5 -right-0.5 bg-green-600 w-2 h-2 rounded-full border-2 border-white shadow"></div>' : ''}
           </div>
         `;
       }
@@ -270,29 +365,28 @@ export default function ShanghaiRadarMap({
       const markerInstance = new AMap.Marker({
         position: [coords.lng, coords.lat],
         content: orderContent,
-        offset: new AMap.Pixel(-10, -10),
+        offset: new AMap.Pixel(-14, -14),
         zIndex: isSelected ? 120 : 100,
         extData: order,
       });
 
-      // Hover overlay trigger popup: 【科目 | 时薪】
       markerInstance.on('mouseover', (e: any) => {
         const infoWindow = infoWindowRef.current;
         if (!infoWindow) return;
 
         infoWindow.setContent(`
-          <div class="bg-neutral-950/95 border border-neutral-700/80 p-2.5 rounded-xl shadow-2xl text-white font-sans text-xs min-w-[140px] select-none backdrop-blur animate-fade-in">
-            <div class="flex items-center justify-between gap-2.5 border-b border-neutral-800 pb-1.5 mb-1.5">
-              <span class="bg-orange-500 text-white font-black text-[10px] px-1.5 py-0.5 rounded leading-none shrink-0">${order.subject}</span>
+          <div class="bg-neutral-950/95 border border-neutral-700/80 p-3 rounded-xl shadow-2xl text-white font-sans text-xs min-w-[150px] select-none backdrop-blur">
+            <div class="flex items-center justify-between gap-2.5 border-b border-neutral-800 pb-2 mb-2">
+              <span class="bg-orange-500 text-white font-black text-[10px] px-2 py-0.5 rounded leading-none shrink-0">${order.subject}</span>
               <span class="font-extrabold text-[11px] font-mono ${order.isHighPrice ? 'text-red-400' : 'text-emerald-400'}">
                 ${order.isNegotiable ? '面议' : `¥${order.price}/h`}
               </span>
             </div>
-            <div class="text-[10px] text-neutral-400 flex items-center justify-between gap-1">
+            <div class="text-[10px] text-neutral-400 flex items-center justify-between gap-1 mb-1">
               <span>年级: ${order.grade}</span>
-              <span class="text-neutral-500 truncate max-w-[70px]">${order.district}</span>
+              <span class="text-neutral-500">${order.district}</span>
             </div>
-            <div class="text-[9px] text-neutral-510 leading-snug mt-1 truncate border-t border-neutral-900 pt-1">
+            <div class="text-[9px] text-neutral-510 leading-snug truncate border-t border-neutral-900 pt-1">
               ${order.address}
             </div>
           </div>
@@ -356,30 +450,85 @@ export default function ShanghaiRadarMap({
   return (
     <div className="flex-1 w-full h-full flex flex-col relative bg-neutral-950 font-sans overflow-hidden">
       {/* Absolute Header Overlay panel */}
-      <div className="absolute top-3 left-3 bg-neutral-950/90 backdrop-blur border border-neutral-800 p-3 rounded-xl z-30 max-w-xs space-y-1.5 shadow-2xl select-none">
+      <div className="absolute top-3 left-3 bg-neutral-950/90 backdrop-blur border border-neutral-800 p-3 rounded-xl z-30 max-w-xs space-y-2 shadow-2xl select-none">
         <h4 className="text-xs font-extrabold text-orange-500 tracking-wide flex items-center gap-1.5">
           <Compass className="w-4 h-4" />
-          <span>上海附近实景卫星雷达</span>
+          <span>附近家教地图</span>
         </h4>
         <p className="text-[10px] text-neutral-400 leading-snug">
-          主底图已部署【高德高清卫星实景】，叠加16行政区发光边境。已锁定真实小区地理围栏坐标。
+          地图显示家教订单位置，点击标记查看详细信息
         </p>
 
-        {currentLandmark ? (
-          <div className="text-[10px] bg-neutral-900 border border-neutral-800/80 p-2 rounded-lg text-neutral-300 font-sans space-y-1">
-            <div className="text-[9px] text-neutral-500 font-semibold tracking-wider uppercase">教员参考驻点:</div>
-            <div className="text-neutral-100 font-bold truncate">{currentLandmark.name}</div>
-            <div className="text-cyan-400 font-bold text-[9.5px] border-t border-neutral-800 pt-1 mt-0.5">
-              通勤范围上限: {maxDistance}公里半直径范围
+        {showManualLocation ? (
+          <div className="space-y-2">
+            <div className="relative">
+              <Search className="absolute left-2 top-1.5 w-3.5 h-3.5 text-neutral-500" />
+              <input
+                type="text"
+                value={userAddressInput}
+                onChange={(e) => setUserAddressInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleSearchAddress()}
+                placeholder="输入地址搜索..."
+                className="w-full pl-7 pr-3 py-1.5 bg-neutral-800 border border-neutral-700 rounded-lg text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-cyan-500"
+              />
             </div>
+            {searchError && (
+              <p className="text-[9px] text-red-400">{searchError}</p>
+            )}
+            <div className="flex gap-1.5">
+              <button
+                onClick={handleSearchAddress}
+                disabled={isSearching}
+                className="flex-1 px-3 py-1.5 bg-green-600 hover:bg-green-700 disabled:bg-green-800 text-white text-[10px] font-bold rounded-lg transition flex items-center justify-center gap-1"
+              >
+                {isSearching ? '搜索中...' : '搜索地址'}
+              </button>
+              <button
+                onClick={handleGpsLocate}
+                disabled={isSearching}
+                className="flex-1 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-800 text-white text-[10px] font-bold rounded-lg transition flex items-center justify-center gap-1"
+              >
+                <Navigation className="w-3 h-3" />
+                定位
+              </button>
+            </div>
+            <button
+              onClick={() => {
+                setShowManualLocation(false);
+                setUserAddressInput('');
+                setSearchError(null);
+              }}
+              className="w-full py-1 text-[9px] text-neutral-400 hover:text-neutral-300 transition flex items-center justify-center gap-1"
+            >
+              <X className="w-3 h-3" />
+              取消
+            </button>
           </div>
         ) : (
-          <button 
-            onClick={onModifyLandmark}
-            className="w-full mt-1.5 py-1.5 bg-red-600 hover:bg-red-700 text-white text-[10px] font-bold rounded-lg transition"
-          >
-            未绑定地标，请先设置授课起始点
-          </button>
+          <>
+            {currentLandmark ? (
+              <div className="text-[10px] bg-neutral-900 border border-neutral-800/80 p-2 rounded-lg text-neutral-300 font-sans space-y-1">
+                <div className="text-[9px] text-neutral-500 font-semibold tracking-wider uppercase">我的位置:</div>
+                <div className="text-neutral-100 font-bold truncate">{currentLandmark.name}</div>
+                <div className="text-cyan-400 font-bold text-[9.5px] border-t border-neutral-800 pt-1 mt-0.5">
+                  搜索范围: {maxDistance}公里
+                </div>
+              </div>
+            ) : (
+              <div className="text-[10px] bg-red-900/30 border border-red-800/30 p-2 rounded-lg text-red-400 font-sans">
+                <div className="font-semibold">未设置位置</div>
+                <div className="text-[9px] mt-1">请添加您的位置以便查看附近订单</div>
+              </div>
+            )}
+            
+            <button
+              onClick={() => setShowManualLocation(true)}
+              className="w-full py-1.5 bg-neutral-800 hover:bg-neutral-700 text-white text-[10px] font-bold rounded-lg transition flex items-center justify-center gap-1"
+            >
+              <MapPin className="w-3.5 h-3.5" />
+              添加我的位置
+            </button>
+          </>
         )}
 
         <div className="pt-1.5 border-t border-neutral-900 text-[9.5px] text-neutral-500 flex justify-between font-medium">

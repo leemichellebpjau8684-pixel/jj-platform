@@ -7,8 +7,8 @@ import {
 import { Order, Coordinate } from '../types';
 import { SHANGHAI_DISTRICTS, SUBJECTS, GRADES } from '../data';
 
-// 从环境变量获取管理员密码（生产环境应在 Netlify 后台配置）
-const ADMIN_PASSWORD = (import.meta as any).env?.VITE_ADMIN_PASSWORD || '';
+// 从环境变量获取管理员密码（必须在 Netlify 后台配置 VITE_ADMIN_PASSWORD）
+const ADMIN_PASSWORD = (import.meta as any).env?.VITE_ADMIN_PASSWORD;
 
 //上海各区中心坐标字典用于新解析订单自动定位映射
 export const DISTRICT_CENTERS: Record<string, Coordinate> = {
@@ -118,7 +118,7 @@ export default function AdminDashboard({
 
     // Split raw text into individual blocks by looking for empty lines or specific headings
     const rawBlocks = rawText
-      .split(/\n\s*\n|(?=订单编号)[:：]|(?=编号)[:：]|(?=【订单|SH-2026)/gi)
+      .split(/\n\s*\n|(?=家教编号)[:：]|(?=订单编号)[:：]|(?=编号)[:：]|(?=【订单|SH-2026)/gi)
       .map(b => b.trim())
       .filter(b => b.length > 8);
 
@@ -128,69 +128,240 @@ export default function AdminDashboard({
     }
 
     const parsedList: Order[] = [];
-    const timestampStr = new Date().toISOString().replace('T', ' ').substring(0, 19);
+    const now = new Date();
+    const timestampStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
 
     rawBlocks.forEach((block, index) => {
-      // 1. Analyze Order ID
+      const lines = block.split('\n').filter(line => line.trim().length > 0);
+      
+      // 1. Analyze Order ID - must extract from the order, do NOT auto-generate
       let orderId = '';
-      const idMatch = block.match(/(?:SH-2\d{3}-\d+|订单编号[:：\s]*([A-Za-z0-9-]+)|编号[:：\s]*([A-Za-z0-9-]+))/i);
-      if (idMatch) {
-        orderId = idMatch[1] || idMatch[2] || idMatch[0];
+      let idLine = '';
+      
+      // First, check for explicit ID patterns
+      const explicitIdMatch = block.match(/(?:家教编号|订单编号|编号)[:：\s]*([A-Za-z0-9-#]+)/i);
+      if (explicitIdMatch) {
+        orderId = explicitIdMatch[1];
+        const idLineIndex = lines.findIndex(line => line.match(/(家教编号|订单编号|编号)/));
+        if (idLineIndex >= 0) {
+          idLine = lines[idLineIndex].trim();
+        }
       } else {
-        orderId = `SH-2026-${Math.floor(10000 + Math.random() * 90000)}`;
+        // Check first line and last line for ID (contains letters or >=3 digits)
+        const idPattern = /([A-Za-z][A-Za-z0-9-#]*|\d{3,})/;
+        
+        // Check first line
+        if (lines.length > 0) {
+          const firstLineMatch = lines[0].match(idPattern);
+          if (firstLineMatch) {
+            orderId = firstLineMatch[1];
+            idLine = lines[0].trim();
+          }
+        }
+        
+        // If not found in first line, check last line
+        if (!orderId && lines.length > 0) {
+          const lastLineMatch = lines[lines.length - 1].match(idPattern);
+          if (lastLineMatch) {
+            orderId = lastLineMatch[1];
+            idLine = lines[lines.length - 1].trim();
+          }
+        }
+      }
+      
+      // If still no ID found, skip this block with warning
+      if (!orderId) {
+        console.warn(`Skipping block ${index}: No valid ID found`);
+        return;
       }
 
-      // Eliminate overlapping id
-      if (parsedList.some(o => o.id === orderId) || drafts.some(o => o.id === orderId) || orders.some(o => o.id === orderId)) {
-        orderId = `SH-2026-${Math.floor(10000 + Math.random() * 90000)}`;
+      // Eliminate overlapping id - append suffix if duplicate
+      let finalOrderId = orderId;
+      let suffix = 1;
+      while (parsedList.some(o => o.id === finalOrderId) || drafts.some(o => o.id === finalOrderId) || orders.some(o => o.id === finalOrderId)) {
+        finalOrderId = `${orderId}-${suffix}`;
+        suffix++;
+      }
+      orderId = finalOrderId;
+
+      // Extract raw content (content without the id line)
+      let rawContent = '';
+      if (idLine) {
+        rawContent = block.replace(idLine, '').trim();
+      } else {
+        rawContent = block.trim();
+      }
+      if (!rawContent) {
+        rawContent = block.trim();
       }
 
       // 2. Area/District
       let area = '';
-      for (const d of SHANGHAI_DISTRICTS) {
-        if (block.includes(d)) {
-          area = d;
-          break;
+      
+      // Check for online tutoring first
+      if (block.includes('线上') || block.includes('网课') || block.includes('远程') || block.includes('视频')) {
+        area = '线上';
+      } else {
+        // Try to match full district name (with "区" suffix)
+        for (const d of SHANGHAI_DISTRICTS) {
+          if (block.includes(d)) {
+            area = d;
+            break;
+          }
+        }
+        
+        // If not found, try to match without "区" suffix (e.g., "长宁" -> "长宁区")
+        if (!area) {
+          for (const d of SHANGHAI_DISTRICTS) {
+            const shortName = d.replace('区', '');
+            if (shortName && block.includes(shortName)) {
+              area = d;
+              break;
+            }
+          }
         }
       }
+      
       // If not clearly identified, default to empty to highlight the red visual error later!
       
       // 3. Subject & Grade
-      let mathGrade = '高中';
-      if (block.includes('小学') || block.includes('初一') || block.includes('初二') || block.includes('三年级') || block.includes('五年级')) {
-        mathGrade = block.includes('小学') || block.includes('年级') ? '小学' : '初中';
-      } else if (block.includes('高') || block.includes('高一') || block.includes('高二') || block.includes('高三') || block.includes('高考')) {
-        mathGrade = '高中';
-      } else if (block.includes('幼儿') || block.includes('启蒙')) {
+      let mathGrade = '其他';
+      
+      // Check for age patterns like "xx岁" where xx < 10
+      const ageMatch = block.match(/(\d{1,2})岁/);
+      if (ageMatch) {
+        const age = parseInt(ageMatch[1], 10);
+        if (age > 0 && age < 10) {
+          mathGrade = '幼儿启蒙';
+        }
+      }
+      
+      // Check for kindergarten/early education keywords
+      if (mathGrade === '其他' && (block.includes('幼') || block.includes('启蒙') || block.includes('幼儿园') || block.includes('学前'))) {
         mathGrade = '幼儿启蒙';
+      }
+      
+      // Check for adult education
+      if (mathGrade === '其他' && block.includes('成人')) {
+        mathGrade = '成人';
+      }
+      
+      // Check for grade level keywords
+      if (mathGrade === '其他') {
+        if (block.includes('小学') || 
+            block.includes('一年级') || block.includes('二年级') || 
+            block.includes('三年级') || block.includes('四年级') || 
+            block.includes('五年级') || block.match(/\d年级/)?.[0]?.startsWith('1') ||
+            block.match(/\d年级/)?.[0]?.startsWith('2') ||
+            block.match(/\d年级/)?.[0]?.startsWith('3') ||
+            block.match(/\d年级/)?.[0]?.startsWith('4') ||
+            block.match(/\d年级/)?.[0]?.startsWith('5')) {
+          mathGrade = '小学';
+        } else if (block.includes('初中') || block.includes('初一') || 
+                   block.includes('初二') || block.includes('初三') ||
+                   block.includes('六年级') || block.includes('七年级') ||
+                   block.includes('八年级') || block.includes('九年级')) {
+          mathGrade = '初中';
+        } else if (block.includes('高中') || block.includes('高一') || 
+                   block.includes('高二') || block.includes('高三') ||
+                   block.includes('高考')) {
+          mathGrade = '高中';
+        }
       }
 
       let subName = '';
-      for (const s of SUBJECTS) {
-        if (block.includes(s)) {
-          subName = s;
-          break;
-        }
+      
+      // Extract subject from 辅导科目 field if present
+      const subjectMatch = block.match(/(?:辅导科目|科目|学科)[:：\s]*(.+?)(?:[，,。\n]|$)/);
+      let subjectContent = '';
+      if (subjectMatch) {
+        subjectContent = subjectMatch[1].trim();
       }
-      if (!subName) {
-        // Fallback checks
-        if (block.includes('数')) subName = '数学';
-        else if (block.includes('英')) subName = '英语';
-        else if (block.includes('理')) subName = '物理';
-        else if (block.includes('化')) subName = '化学';
-        else subName = '数学'; // Default fallback
+      
+      // If subject content is extracted from "辅导科目" field, use it directly
+      if (subjectContent) {
+        subName = subjectContent;
+      } else {
+        // Only use matching logic when no explicit subject field is found
+        const matchedSubjects: string[] = [];
+        
+        // Check 作业辅导 first (special case)
+        if (block.includes('作业')) {
+          matchedSubjects.push('作业辅导');
+        }
+        
+        // Check for foreign languages (other than English)
+        const foreignLanguages = ['德语', '法语', '日语', '韩语', '西班牙语', '俄语', '阿拉伯语', '葡萄牙语', '意大利语', '泰语', '越南语'];
+        const hasForeignLanguage = foreignLanguages.some(lang => block.includes(lang));
+        if (hasForeignLanguage) {
+          matchedSubjects.push('外语');
+        }
+        
+        // Match other subjects from SUBJECTS list
+        for (const s of SUBJECTS) {
+          if (s !== '未识别' && s !== '作业辅导' && s !== '外语' && block.includes(s)) {
+            if (!matchedSubjects.includes(s)) {
+              matchedSubjects.push(s);
+            }
+          }
+        }
+        
+        // If matched subjects found, join them
+        if (matchedSubjects.length > 0) {
+          subName = matchedSubjects.join('');
+        } else {
+          // Fallback: single character matches (avoid easily confused characters)
+          const charMatches: string[] = [];
+          if (block.includes('数')) charMatches.push('数学');
+          if (block.includes('英')) charMatches.push('英语');
+          if (block.includes('理')) charMatches.push('物理');
+          if (block.includes('化')) charMatches.push('化学');
+          if (block.includes('语')) charMatches.push('语文');
+          if (block.includes('史')) charMatches.push('历史');
+          if (block.includes('生')) charMatches.push('生物');
+          if (block.includes('政')) charMatches.push('政治');
+          if (block.includes('艺')) charMatches.push('艺术');
+          if (block.includes('体')) charMatches.push('体育');
+          if (block.includes('奥')) charMatches.push('奥数');
+          if (block.includes('陪')) charMatches.push('陪读');
+          if (block.includes('全科')) charMatches.push('全科');
+          
+          if (charMatches.length > 0) {
+            subName = charMatches.join('');
+          } else {
+            subName = '未识别'; // Default fallback: 未识别
+          }
+        }
       }
 
       // 4. Price / Hour Rate (Salary)
-      let priceRate = 100;
-      const priceMatch = block.match(/(\d{2,3})\s*(?:元|¥|\/小时)/);
-      if (priceMatch) {
-         priceRate = parseInt(priceMatch[1], 10);
-      } else {
-        // Search pure digits of length 3 e.g. 120, 150
-        const priceAlt = block.match(/(?:时薪|报酬|价格)[:：\s]*(\d{2,3})/);
-        if (priceAlt) {
-          priceRate = parseInt(priceAlt[1], 10);
+      let priceRate = 0;
+      
+      // Try multiple patterns for extracting price
+      const pricePatterns = [
+        /(\d{2,4})\s*\/\s*h/i,           // xx/h
+        /(\d{2,4})\s*元\s*\/\s*h/i,      // xx元/h
+        /(\d{2,4})\s*元\s*\/\s*每小时/i,  // xx元/每小时
+        /(\d{2,4})\s*元\s*\/\s*小时/i,    // xx元/小时
+        /(\d{2,4})\s*(?:元|¥)\s*\/?\s*(?:小时|h)/i, // general pattern
+        /(?:薪资|时薪|报酬|价格|薪水)[:：\s]*(\d{2,4})/i, // keywords followed by number
+        /(\d{2,4})\s*(?:元|¥)\s*\/?\s*(?:天|日)/i, // daily rate
+        /(\d{2,4})\s*(?:元|¥)\s*\/?\s*(?:月|月薪)/i // monthly rate (convert to hourly roughly)
+      ];
+      
+      for (const pattern of pricePatterns) {
+        const match = block.match(pattern);
+        if (match) {
+          priceRate = parseInt(match[1], 10);
+          // If it's monthly rate, roughly convert to hourly (assuming 22 days/month, 8 hours/day)
+          if (pattern.source.includes('月')) {
+            priceRate = Math.round(priceRate / (22 * 8));
+          }
+          // If it's daily rate, roughly convert to hourly (assuming 8 hours/day)
+          if (pattern.source.includes('天') || pattern.source.includes('日')) {
+            priceRate = Math.round(priceRate / 8);
+          }
+          break;
         }
       }
 
@@ -256,7 +427,9 @@ export default function AdminDashboard({
         isCollegeStudent: block.includes('大学生') || block.includes('女生') || block.includes('男生'),
         isNegotiable: block.includes('面议') || block.includes('协商') || priceRate === 0,
         contactTeacher: 'Ken06103',
-        publishTime: timestampStr
+        publishTime: timestampStr,
+        rawContent: rawContent,
+        idLine: idLine
       };
 
       parsedList.push(itemModel);
@@ -371,7 +544,8 @@ export default function AdminDashboard({
     setDrafts(prev => prev.filter(d => !selectedDraftIds.includes(d.id)));
 
     // Increment stats todayAdded & lastUpdated timestamp
-    const nowTime = new Date().toISOString().replace('T', ' ').substring(0, 19);
+    const now = new Date();
+    const nowTime = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
     setStats((prev: any) => ({
       ...prev,
       todayAdded: prev.todayAdded + itemsToPublish.length,
@@ -391,7 +565,8 @@ export default function AdminDashboard({
     }
 
     // Add archive timestamp
-    const nowTime = new Date().toISOString().replace('T', ' ').substring(0, 19);
+    const now = new Date();
+    const nowTime = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
     const itemsToDecline = drafts
       .filter(d => selectedDraftIds.includes(d.id))
       .map(item => ({ ...item, publishTime: nowTime })); // timestamp
@@ -418,7 +593,8 @@ export default function AdminDashboard({
     }
 
     // Extract items
-    const nowTime = new Date().toISOString().replace('T', ' ').substring(0, 19);
+    const now = new Date();
+    const nowTime = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
     const takedownItems = orders
       .filter(o => listToTakedown.includes(o.id))
       .map(item => ({ ...item, publishTime: nowTime })); // append archived record timestamp
@@ -890,15 +1066,13 @@ export default function AdminDashboard({
                   <div className="grid grid-cols-3 gap-2.5 shrink-0">
                     <div className="space-y-1">
                       <span className="text-[10px] font-bold text-neutral-400 block uppercase">科目细类</span>
-                      <select
+                      <input
+                        type="text"
                         value={editSubject}
                         onChange={(e) => setEditSubject(e.target.value)}
-                        className="w-full bg-neutral-900 border border-neutral-850 text-neutral-250 py-1.5 px-1.5 rounded text-[11px]"
-                      >
-                        {SUBJECTS.map(s => (
-                          <option key={s} value={s}>{s}</option>
-                        ))}
-                      </select>
+                        placeholder="如: 数学英语、物理化学、全科"
+                        className="w-full bg-neutral-900 border border-neutral-850 text-neutral-250 py-1.5 px-2 rounded text-[11px] focus:ring-1 focus:ring-orange-500 focus:outline-none"
+                      />
                     </div>
 
                     <div className="space-y-1">
