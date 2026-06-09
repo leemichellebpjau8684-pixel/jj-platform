@@ -155,6 +155,20 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+    const handleOpenWeChatModal = (e: any) => {
+      const orderId = e.detail?.orderId;
+      if (orderId) {
+        setSelectedOrderId(orderId);
+        setIsWeChatModalOpen(true);
+      }
+    };
+    window.addEventListener('open-wechat-modal', handleOpenWeChatModal);
+    return () => {
+      window.removeEventListener('open-wechat-modal', handleOpenWeChatModal);
+    };
+  }, []);
+
   const navigateTo = (path: string) => {
     if (path === '/admin') {
       window.location.hash = '#/admin';
@@ -628,19 +642,7 @@ export default function App() {
   return (
     <div className="w-full h-screen md:w-[1024px] md:h-[768px] bg-[#F8F9FA] flex flex-col font-sans overflow-hidden text-[#1A1A1A] relative select-none mx-auto">
       
-      {/* Mobile Header - Fixed top bar with title */}
-      <header className="md:hidden h-14 bg-white border-b border-gray-100 flex items-center justify-between px-4 shrink-0 z-20 shadow-sm sticky top-0">
-        <button className="text-gray-600 hover:text-gray-800 p-1">
-          <X className="w-5 h-5" />
-        </button>
-        <div className="text-center">
-          <h1 className="text-base font-bold text-gray-800">家教订单查询系统</h1>
-          <p className="text-[10px] text-gray-400">www.jiajiao.site</p>
-        </div>
-        <button className="text-gray-600 hover:text-gray-800 p-1">
-          <ChevronDown className="w-5 h-5" />
-        </button>
-      </header>
+
 
       {/* PC Header */}
       <header className="hidden md:block h-14 bg-white border-b border-gray-200 flex items-center justify-between px-4 md:px-6 shrink-0 z-20 shadow-sm">
@@ -2195,11 +2197,20 @@ export default function App() {
                   src="/wechat-qr.png" 
                   alt="小德微信二维码" 
                   className="w-full h-full object-contain"
+                  loading="lazy"
+                  decoding="async"
+                  onLoad={(e) => {
+                    (e.target as HTMLImageElement).style.opacity = '1';
+                  }}
                   onError={(e) => {
                     (e.target as HTMLImageElement).style.display = 'none';
                     (e.target as HTMLImageElement).parentElement!.innerHTML = '<div class="flex items-center justify-center w-full h-full text-gray-400 text-xs">请添加 wechat-qr.png 图片</div>';
                   }}
+                  style={{ opacity: 0, transition: 'opacity 0.3s ease-in-out' }}
                 />
+                <div className="absolute inset-0 bg-neutral-100 flex items-center justify-center">
+                  <div className="w-8 h-8 border-2 border-orange-500 border-t-transparent rounded-full animate-spin"></div>
+                </div>
               </div>
 
               {/* Text WeChat ID list for manual copy */}

@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, useMemo } from 'react';
-import { Compass, RotateCcw, MapPin, Navigation, Search, X } from 'lucide-react';
+import { Compass, RotateCcw, MapPin, Navigation, Search, X, Phone, Clock, DollarSign, Map, ChevronRight, CheckCircle2 } from 'lucide-react';
 import { Landmark, Order, Coordinate } from '../types';
 import { loadAMapScript, AMAP_CONFIG, forwardGeocode, reverseGeocode } from '../services/amap';
+import { getDistance } from '../utils';
 
 interface ShanghaiRadarMapProps {
   currentLandmark: Landmark | null;
@@ -619,12 +620,12 @@ export default function ShanghaiRadarMap({
           className="absolute bottom-4 left-4 right-4 md:left-4 md:right-auto md:w-80 bg-neutral-950/95 backdrop-blur-sm border border-neutral-800 rounded-xl p-4 shadow-2xl z-30 select-none animate-slide-up"
           onClick={(e) => e.stopPropagation()}
         >
-          <div className="flex justify-between items-start mb-2">
+          <div className="flex justify-between items-start mb-3">
             <div className="min-w-0">
-              <span className="text-[9px] text-neutral-500 font-mono block uppercase">{selectedMapOrder.id}</span>
+              <span className="text-[9px] text-neutral-500 font-mono block">{selectedMapOrder.id}</span>
               <h3 className="text-xs font-black text-white flex items-center gap-1.5 mt-0.5">
                 <span className="bg-orange-600 text-white text-[9.5px] px-1.5 py-0.5 rounded leading-none shrink-0">{selectedMapOrder.district}</span>
-                <span className="truncate">{selectedMapOrder.grade}{selectedMapOrder.subject}</span>
+                <span className="truncate">{selectedMapOrder.grade} | {selectedMapOrder.subject}</span>
               </h3>
             </div>
             <button 
@@ -634,33 +635,80 @@ export default function ShanghaiRadarMap({
               }} 
               className="text-neutral-500 hover:text-white p-1 rounded-full hover:bg-neutral-800 transition"
             >
-              ×
+              <X className="w-4 h-4" />
             </button>
           </div>
 
-          <p className="text-[10px] text-neutral-400 mb-2.5 leading-relaxed truncate">
-            {selectedMapOrder.studentDesc}
-          </p>
-
-          <div className="flex justify-between items-center border-t border-neutral-900 pt-2.5 text-[10px]">
-            <div className={`font-extrabold ${selectedMapOrder.isHighPrice ? 'text-red-400' : 'text-emerald-400'}`}>
-              {selectedMapOrder.isNegotiable ? '时薪: 面议协商' : `时薪: ¥${selectedMapOrder.price}/小时`}
-            </div>
+          <div className="space-y-2 mb-3">
+            <p className="text-[10px] text-neutral-400 leading-relaxed line-clamp-2">
+              {selectedMapOrder.studentDesc}
+            </p>
             
-            <button
-              onClick={() => {
-                // Return back to regular list and select
-                const parentNav = document.getElementById('tab-switch-regular-list-btn');
-                if (parentNav) {
-                  parentNav.click();
-                }
-                setSelectedMapOrder(null);
-              }}
-              className="px-3 py-1.5 bg-orange-500 hover:bg-orange-600 text-white text-[10px] rounded-lg font-bold transition flex items-center gap-0.5 shadow shadow-orange-500/10 cursor-pointer"
-            >
-              <span>打开需求书</span>
-              <span>&gt;</span>
-            </button>
+            <div className="grid grid-cols-2 gap-2 text-[9px]">
+              <div className="flex items-center gap-1.5 text-neutral-500">
+                <Map className="w-3 h-3" />
+                <span className="truncate">{selectedMapOrder.address}</span>
+              </div>
+              <div className="flex items-center gap-1.5 text-neutral-500">
+                <Clock className="w-3 h-3" />
+                <span className="truncate">{selectedMapOrder.frequency}</span>
+              </div>
+            </div>
+
+            {currentLandmark && !selectedMapOrder.isOnline && (
+              <div className="flex items-center gap-1.5 text-[9px] text-cyan-400">
+                <MapPin className="w-3 h-3" />
+                <span>距离约 {getDistance(currentLandmark.coordinate.lat, currentLandmark.coordinate.lng, selectedMapOrder.coordinate.lat, selectedMapOrder.coordinate.lng)}km</span>
+              </div>
+            )}
+            
+            {selectedMapOrder.isOnline && (
+              <div className="flex items-center gap-1.5 text-[9px] text-emerald-400">
+                <CheckCircle2 className="w-3 h-3" />
+                <span>线上授课免通勤</span>
+              </div>
+            )}
+          </div>
+
+          <div className="border-t border-neutral-900 pt-3 space-y-2">
+            <div className="flex justify-between items-center">
+              <div className="flex items-center gap-1">
+                <DollarSign className="w-3 h-3 text-orange-500" />
+                <span className={`font-extrabold text-xs ${selectedMapOrder.isHighPrice ? 'text-red-400' : 'text-emerald-400'}`}>
+                  {selectedMapOrder.isNegotiable ? '时薪面议' : `¥${selectedMapOrder.price}/小时`}
+                </span>
+              </div>
+              {selectedMapOrder.isHighPrice && (
+                <span className="text-[9px] bg-red-500/20 text-red-400 px-2 py-0.5 rounded-full font-bold">高价单 🔥</span>
+              )}
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                onClick={() => {
+                  const parentNav = document.getElementById('tab-switch-regular-list-btn');
+                  if (parentNav) {
+                    parentNav.click();
+                  }
+                  setSelectedMapOrder(null);
+                }}
+                className="flex-1 px-3 py-2 bg-neutral-800 hover:bg-neutral-700 text-white text-[10px] rounded-lg font-bold transition flex items-center justify-center gap-1 cursor-pointer"
+              >
+                <span>查看需求书</span>
+                <ChevronRight className="w-3 h-3" />
+              </button>
+              
+              <button
+                onClick={() => {
+                  const event = new CustomEvent('open-wechat-modal', { detail: { orderId: selectedMapOrder.id } });
+                  window.dispatchEvent(event);
+                }}
+                className="flex-1 px-3 py-2 bg-orange-500 hover:bg-orange-600 text-white text-[10px] rounded-lg font-bold transition flex items-center justify-center gap-1 cursor-pointer shadow shadow-orange-500/10"
+              >
+                <Phone className="w-3 h-3" />
+                <span>联系领单</span>
+              </button>
+            </div>
           </div>
         </div>
       )}
