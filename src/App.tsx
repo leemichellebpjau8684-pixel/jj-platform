@@ -4,7 +4,7 @@ import {
   ChevronDown, SlidersHorizontal, Sparkles, DollarSign, Clock, Compass, 
   User, Map, ListFilter, Copy, RotateCcw, Info, ExternalLink, Eye, 
   Volume2, CheckCircle2, ChevronRight, Phone, BookOpen, HelpCircle,
-  Heart, Star, Trash2, Filter, ArrowUpDown, MessageSquare
+  Heart, Star, Trash2, Filter, ArrowUpDown, MessageSquare, AlertTriangle
 } from 'lucide-react';
 
 import { Order, Landmark, FilterState, AdvancedFilterState, TravelMode, NavigationResult, Feedback } from './types';
@@ -214,9 +214,19 @@ export default function App() {
 
   const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
   const [feedbackContent, setFeedbackContent] = useState('');
+  const [feedbackLimitAlert, setFeedbackLimitAlert] = useState(false);
+
+  const MAX_FEEDBACK_COUNT = 3;
 
   const submitFeedback = () => {
     if (!feedbackContent.trim()) return;
+    
+    // 检查是否超过反馈限制
+    if (feedbacks.length >= MAX_FEEDBACK_COUNT) {
+      setFeedbackLimitAlert(true);
+      setTimeout(() => setFeedbackLimitAlert(false), 3000);
+      return;
+    }
     
     const newFeedback: Feedback = {
       id: `FEEDBACK-${Date.now()}`,
@@ -2176,7 +2186,9 @@ export default function App() {
                         {/* Order Meta */}
                         <div className="flex items-center justify-between text-xs text-gray-500">
                           <div className="flex items-center gap-3">
-                            <span className="text-orange-600 font-bold">{order.priceText || `${order.price}元/h`}</span>
+                            <span className="text-orange-600 font-bold">
+                              {order.price === 0 ? '教员报价' : (order.priceText || `${order.price}元/h`)}
+                            </span>
                             <span className="flex items-center gap-1">
                               <MapPin className="w-3 h-3" />
                               {order.address}
@@ -2892,6 +2904,14 @@ export default function App() {
       )}
 
       {/* Feedback Modal */}
+      {feedbackLimitAlert && (
+        <div className="fixed top-4 left-1/2 transform -translate-x-1/2 px-4 py-2.5 rounded-xl bg-red-500 text-white shadow-xl z-50 flex items-center gap-2">
+          <AlertTriangle className="w-4 h-4" />
+          <span className="text-sm font-bold">每个用户最多只能提交 {MAX_FEEDBACK_COUNT} 次反馈，感谢您的支持！</span>
+        </div>
+      )}
+
+      {/* Feedback Modal */}
       {isFeedbackModalOpen && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl w-full max-w-md shadow-xl">
@@ -2907,6 +2927,9 @@ export default function App() {
             <div className="p-4">
               <p className="text-sm text-gray-500 mb-3">
                 感谢您的反馈！请告诉我们您的意见或建议，帮助我们做得更好。
+              </p>
+              <p className="text-xs text-orange-500 mb-3 font-semibold">
+                剩余反馈次数：{MAX_FEEDBACK_COUNT - feedbacks.length} / {MAX_FEEDBACK_COUNT}
               </p>
               <textarea
                 value={feedbackContent}
@@ -2928,7 +2951,7 @@ export default function App() {
                 </button>
                 <button
                   onClick={submitFeedback}
-                  disabled={!feedbackContent.trim()}
+                  disabled={!feedbackContent.trim() || feedbacks.length >= MAX_FEEDBACK_COUNT}
                   className="px-4 py-2 text-sm font-semibold bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
                 >
                   提交反馈

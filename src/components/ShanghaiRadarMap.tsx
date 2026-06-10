@@ -683,6 +683,7 @@ export default function ShanghaiRadarMap({
             <div className="flex gap-2">
               <button
                 onClick={() => {
+                  setSelectedOrderId(selectedMapOrder.id);
                   const parentNav = document.getElementById('tab-switch-regular-list-btn');
                   if (parentNav) {
                     parentNav.click();
