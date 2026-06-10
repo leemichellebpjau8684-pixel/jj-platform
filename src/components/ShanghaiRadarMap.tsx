@@ -454,11 +454,8 @@ export default function ShanghaiRadarMap({
       <div className="absolute top-3 left-3 bg-neutral-950/90 backdrop-blur border border-neutral-800 p-3 rounded-xl z-30 max-w-xs space-y-2 shadow-2xl select-none">
         <h4 className="text-xs font-extrabold text-orange-500 tracking-wide flex items-center gap-1.5">
           <Compass className="w-4 h-4" />
-          <span>附近家教地图</span>
+          <span>请先在列表视图设置好筛选条件和搜索范围（高级筛选）</span>
         </h4>
-        <p className="text-[10px] text-neutral-400 leading-snug">
-          地图显示家教订单位置，点击标记查看详细信息
-        </p>
 
         {showManualLocation ? (
           <div className="space-y-2">

@@ -2,13 +2,14 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Check, X, FileText, AlertTriangle, Play, RefreshCw, Trash2, 
   Search, ShieldCheck, LogIn, ChevronRight, CornerDownRight, CheckSquare, 
-  Square, Info, Activity, Database, Calendar, Clock, DollarSign, MapPin
+  Square, Info, Activity, Database, Calendar, Clock, DollarSign, MapPin,
+  HelpCircle
 } from 'lucide-react';
 import { Order, Coordinate } from '../types';
 import { SHANGHAI_DISTRICTS, SUBJECTS, GRADES } from '../data';
 
-// 从环境变量获取管理员密码（必须在 Netlify 后台配置 VITE_ADMIN_PASSWORD）
-const ADMIN_PASSWORD = (import.meta as any).env?.VITE_ADMIN_PASSWORD;
+// 管理员密码（从环境变量读取）
+const ADMIN_PASSWORD = import.meta.env.VITE_ADMIN_PASSWORD || '';
 
 //上海各区中心坐标字典用于新解析订单自动定位映射
 export const DISTRICT_CENTERS: Record<string, Coordinate> = {
@@ -30,6 +31,8 @@ export const DISTRICT_CENTERS: Record<string, Coordinate> = {
   '崇明区': { lat: 31.6225, lng: 121.3975 }
 };
 
+import { Feedback } from '../types';
+
 interface AdminDashboardProps {
   orders: Order[];
   setOrders: React.Dispatch<React.SetStateAction<Order[]>>;
@@ -40,6 +43,9 @@ interface AdminDashboardProps {
   stats: any;
   setStats: React.Dispatch<React.SetStateAction<any>>;
   onBackToUser: () => void;
+  feedbacks: Feedback[];
+  markFeedbackAsRead: (feedbackId: string) => void;
+  deleteFeedback: (feedbackId: string) => void;
 }
 
 export default function AdminDashboard({
@@ -51,7 +57,10 @@ export default function AdminDashboard({
   setArchives,
   stats,
   setStats,
-  onBackToUser
+  onBackToUser,
+  feedbacks,
+  markFeedbackAsRead,
+  deleteFeedback
 }: AdminDashboardProps) {
   // 1. Authentication passcode system
   const [password, setPassword] = useState('');
@@ -98,6 +107,11 @@ export default function AdminDashboard({
   const [onlineSearchId, setOnlineSearchId] = useState('');
   const [onlineSearchDistrict, setOnlineSearchDistrict] = useState('全部');
   const [onlineSearchSubject, setOnlineSearchSubject] = useState('全部');
+
+  // Archive Search Filters
+  const [archiveSearchKeyword, setArchiveSearchKeyword] = useState('');
+  const [archiveSearchDistrict, setArchiveSearchDistrict] = useState('全部');
+  const [archiveSearchSubject, setArchiveSearchSubject] = useState('全部');
 
   // Feedback notifications
   const [alertInfo, setAlertInfo] = useState<{ text: string; type: 'success' | 'info' | 'error' } | null>(null);
@@ -407,12 +421,13 @@ export default function AdminDashboard({
         const singlePatterns = [
           /(\d{2,5})\s*元\s*\/\s*h/i,           // xx元/h
           /(\d{2,5})\s*元\s*\/\s*小时/i,        // xx元/小时
+          /(\d{2,5})\s*\/\s*小时/i,             // xx/小时 (without 元)
           /(\d{2,5})\s*元\s*\/\s*月/i,          // xx元/月
           /(\d{2,5})\s*元\s*\/\s*天/i,          // xx元/天
           /(\d{2,5})\s*\/\s*h/i,                // xx/h
           /(\d{2,5})\s*\/\s*月/i,               // xx/月
           /(\d{2,5})\s*\/\s*天/i,               // xx/天
-          /(?:薪资|时薪)[:：\s]*(\d{2,5})\s*(?:元|\/h|\/月)?/i // 薪资: xx
+          /(?:薪资|时薪|薪水)[:：\s]*(\d{2,5})\s*(?:元|\/h|\/月|\/小时)?/i // 薪资/时薪/薪水: xx
         ];
         
         for (const pattern of singlePatterns) {
@@ -531,6 +546,7 @@ export default function AdminDashboard({
   const [editFrequency, setEditFrequency] = useState('');
   const [editRequirements, setEditRequirements] = useState('');
   const [editOrderTag, setEditOrderTag] = useState('');
+  const [showMobileEditor, setShowMobileEditor] = useState(false);
 
   // Hydrate fields when selected draft shifts
   const activeDraft = useMemo(() => {
@@ -714,8 +730,8 @@ export default function AdminDashboard({
   // Handle rendering of authentication block overlay before access
   if (!isAuthenticated) {
     return (
-      <div className="w-[1024px] h-[768px] bg-[#111] flex items-center justify-center font-sans tracking-tight select-none relative">
-        <div className="w-96 bg-[#1f1f1f] border border-neutral-800 rounded-2xl p-8 shadow-2xl flex flex-col relative z-20">
+      <div className="w-full min-h-screen md:w-[1024px] md:min-h-[768px] bg-[#111] flex items-center justify-center font-sans tracking-tight select-none relative p-4">
+        <div className="w-full max-w-md bg-[#1f1f1f] border border-neutral-800 rounded-2xl p-6 md:p-8 shadow-2xl flex flex-col relative z-20">
           
           <div className="flex items-center gap-3.5 mb-6">
             <div className="w-12 h-12 bg-orange-500 rounded-xl flex items-center justify-center text-white font-extrabold text-xl shadow-lg shadow-orange-500/10">J2</div>
@@ -920,7 +936,99 @@ export default function AdminDashboard({
         
         {/* TAB 1: DRAFTS AND CHAT RAW WRITER INTAKE */}
         {adminTab === 'draft' && (
-          <div className="flex-1 flex flex-col md:flex-row min-w-0">
+          <div className="flex-1 flex flex-col min-w-0">
+            {/* Mobile Editor Modal */}
+            {showMobileEditor && (
+              <div className="md:hidden absolute inset-0 bg-[#17181c] z-40 overflow-y-auto">
+                <div className="p-4">
+                  {/* Header */}
+                  <div className="flex items-center justify-between mb-6 pb-4 border-b border-neutral-800">
+                    <button
+                      onClick={() => setShowMobileEditor(false)}
+                      className="flex items-center gap-2 text-neutral-300 hover:text-white"
+                    >
+                      <X className="w-5 h-5" />
+                      <span className="text-sm font-bold">关闭编辑</span>
+                    </button>
+                    <span className="text-sm font-bold text-orange-400">编辑草稿</span>
+                    <div className="w-20"></div>
+                  </div>
+
+                  {/* Form */}
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-xs text-neutral-400 mb-1">订单编号</label>
+                      <input type="text" value={editId} disabled className="w-full bg-neutral-900 border border-neutral-800 text-neutral-500 p-3 rounded-lg text-sm" />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs text-neutral-400 mb-1">上海市行政区 *</label>
+                      <select value={editDistrict} onChange={(e) => setEditDistrict(e.target.value)} className="w-full bg-neutral-900 border border-neutral-800 text-white p-3 rounded-lg text-sm">
+                        <option value="">--选择行政区--</option>
+                        {SHANGHAI_DISTRICTS.map(d => <option key={d} value={d}>{d}</option>)}
+                      </select>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs text-neutral-400 mb-1">科目</label>
+                        <input type="text" value={editSubject} onChange={(e) => setEditSubject(e.target.value)} className="w-full bg-neutral-900 border border-neutral-800 text-white p-3 rounded-lg text-sm" />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-neutral-400 mb-1">学段</label>
+                        <select value={editGrade} onChange={(e) => setEditGrade(e.target.value)} className="w-full bg-neutral-900 border border-neutral-800 text-white p-3 rounded-lg text-sm">
+                          {GRADES.map(g => <option key={g} value={g}>{g}</option>)}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs text-neutral-400 mb-1">薪资</label>
+                        <input type="number" value={editPrice} onChange={(e) => setEditPrice(Math.max(0, parseInt(e.target.value, 10)) || 0)} className="w-full bg-neutral-900 border border-neutral-800 text-white p-3 rounded-lg text-sm" />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-neutral-400 mb-1">薪资文本</label>
+                        <input type="text" value={editPriceText} onChange={(e) => setEditPriceText(e.target.value)} className="w-full bg-neutral-900 border border-neutral-800 text-white p-3 rounded-lg text-sm" />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs text-neutral-400 mb-1">学员描述</label>
+                      <input type="text" value={editStudentDesc} onChange={(e) => setEditStudentDesc(e.target.value)} className="w-full bg-neutral-900 border border-neutral-800 text-white p-3 rounded-lg text-sm" />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs text-neutral-400 mb-1">详细内容</label>
+                      <textarea value={editStudentDetail} onChange={(e) => setEditStudentDetail(e.target.value)} rows={4} className="w-full bg-neutral-900 border border-neutral-800 text-white p-3 rounded-lg text-sm" />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs text-neutral-400 mb-1">上课频次</label>
+                        <input type="text" value={editFrequency} onChange={(e) => setEditFrequency(e.target.value)} className="w-full bg-neutral-900 border border-neutral-800 text-white p-3 rounded-lg text-sm" />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-neutral-400 mb-1">地址</label>
+                        <input type="text" value={editAddress} onChange={(e) => setEditAddress(e.target.value)} className="w-full bg-neutral-900 border border-neutral-800 text-white p-3 rounded-lg text-sm" />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs text-neutral-400 mb-1">教员要求</label>
+                      <input type="text" value={editRequirements} onChange={(e) => setEditRequirements(e.target.value)} className="w-full bg-neutral-900 border border-neutral-800 text-white p-3 rounded-lg text-sm" />
+                    </div>
+
+                    <button onClick={handleSaveDraft} className="w-full py-3 bg-orange-500 hover:bg-orange-600 text-white font-bold rounded-lg">
+                      保存修改
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Desktop Layout */}
+            <div className="flex-1 flex flex-col md:flex-row min-w-0">
             {/* Left 60% Panel: WeChat Input & Draft Collection - Full width on mobile */}
             <div className="w-full md:w-[62%] border-r border-neutral-800 p-3 md:p-5 flex flex-col min-w-0 overflow-y-auto">
               
@@ -1030,13 +1138,15 @@ export default function AdminDashboard({
                     return (
                       <div
                         key={item.id}
-                        onClick={() => setSelectedDraftId(item.id)}
+                        onClick={() => {
+                          setSelectedDraftId(item.id);
+                          setShowMobileEditor(true);
+                        }}
                         className={`p-3.5 rounded-xl border text-left cursor-pointer relative transition-all flex items-start gap-4 ${
                           isActive 
                             ? 'bg-neutral-850 border-orange-500/60 shadow-lg' 
                             : 'bg-neutral-900/40 border-neutral-800 hover:bg-neutral-850 hover:border-neutral-750'
-                        }`}
-                      >
+                        }`}>
                         {/* Custom checkbox */}
                         <div 
                           onClick={(e) => {
@@ -1282,7 +1392,8 @@ export default function AdminDashboard({
               )}
             </div>
           </div>
-        )}
+        </div>
+      )}
 
         {/* TAB 2: ACTIVE LISTINGS REMOVAL & SEARCH (online.json) */}
         {adminTab === 'online' && (
@@ -1488,6 +1599,45 @@ export default function AdminDashboard({
               <span className="font-bold text-neutral-500">归档池数: {archives.length} 条</span>
             </div>
 
+            {/* Archive Search Filters */}
+            <div className="bg-[#1a1b1e] p-3 md:p-4 rounded-xl border border-neutral-800 flex flex-wrap items-center gap-2 shrink-0 mb-4 text-xs font-semibold">
+              <div className="flex items-center gap-1 text-neutral-400 py-1">
+                <Search className="w-4 h-4 text-neutral-400" />
+                <span className="hidden md:inline">归档台账搜索:</span>
+                <span className="md:hidden">搜索:</span>
+              </div>
+
+              <input
+                type="text"
+                placeholder="关键词..."
+                value={archiveSearchKeyword}
+                onChange={(e) => setArchiveSearchKeyword(e.target.value)}
+                className="bg-neutral-950 border border-neutral-850 p-1.5 px-2 md:px-3 rounded font-mono text-[10.5px] tracking-tight placeholder-neutral-600 focus:outline-none focus:border-neutral-700 w-28 md:w-44"
+              />
+
+              <select
+                value={archiveSearchDistrict}
+                onChange={(e) => setArchiveSearchDistrict(e.target.value)}
+                className="bg-neutral-950 border border-neutral-850 p-1.5 rounded text-[10.5px] text-neutral-300 focus:outline-none focus:border-neutral-700"
+              >
+                <option value="全部">全区</option>
+                {SHANGHAI_DISTRICTS.map(d => (
+                  <option key={d} value={d}>{d}</option>
+                ))}
+              </select>
+
+              <select
+                value={archiveSearchSubject}
+                onChange={(e) => setArchiveSearchSubject(e.target.value)}
+                className="bg-neutral-950 border border-neutral-850 p-1.5 rounded text-[10.5px] text-neutral-300 focus:outline-none focus:border-neutral-700"
+              >
+                <option value="全部">全科</option>
+                {SUBJECTS.map(s => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+            </div>
+
             <div className="flex-1 min-h-0 bg-neutral-900/30 border border-neutral-800 rounded-xl overflow-hidden flex flex-col">
               {/* Header - PC only */}
               <div className="hidden md:flex bg-neutral-850/50 px-6 py-2.5 border-b border-neutral-800 text-[10px] text-neutral-400 font-bold uppercase items-center">
@@ -1501,44 +1651,99 @@ export default function AdminDashboard({
 
               {/* Rows scrollbar */}
               <div className="flex-1 min-h-0 overflow-y-auto divide-y divide-neutral-850 font-sans">
-                {archives.length === 0 ? (
-                  <div className="h-full flex flex-col items-center justify-center p-8 text-neutral-500 text-center">
-                    <Database className="w-8 h-8 text-neutral-700 stroke-1 mb-1.5" />
-                    <p className="text-[11px] font-bold">归档历史台账暂空</p>
-                    <p className="text-[10px] text-neutral-600 mt-0.5">当您执行在售订单下架，或者作废草稿时，记录在此累加生效。</p>
-                  </div>
-                ) : (
-                  archives.map(item => (
-                    <div
-                      key={item.id}
-                      className="p-3 md:px-6 md:py-3.5 hover:bg-neutral-850/15 flex flex-col md:flex-row items-start md:items-center text-xs opacity-75 gap-2"
-                    >
-                      {/* Mobile card style */}
-                      <div className="w-full">
-                        <div className="flex flex-wrap items-center gap-2 mb-1.5">
-                          <span className="font-mono font-bold text-neutral-500 select-all text-[10px]">{item.id}</span>
-                          <span className="bg-neutral-800 text-neutral-450 border border-neutral-750 px-1.5 py-0.5 rounded text-[9px] font-bold">
-                            {item.district || '未识别'}
-                          </span>
-                          <span className="bg-neutral-800 text-neutral-400 px-1.5 py-0.5 rounded text-[9px] font-bold">
-                            {item.grade} {item.subject}
-                          </span>
-                          <span className="font-mono font-bold text-neutral-400 text-[11px]">
-                            ¥{item.price}<span className="text-[9px] text-neutral-600">/时</span>
-                          </span>
-                        </div>
-                        <p className="text-neutral-400 font-medium truncate text-[11px]">{item.studentDesc}</p>
-                        <p className="text-[10px] text-neutral-600 truncate leading-none mt-1">地址: {item.address}</p>
-                        <p className="text-[9px] text-neutral-600 font-mono mt-1">{item.publishTime || '2026-06-04 11:00'}</p>
-                      </div>
+                {(() => {
+                  const filteredArchives = archives.filter(item => {
+                    const matchKeyword = !archiveSearchKeyword || 
+                      item.id.toLowerCase().includes(archiveSearchKeyword.toLowerCase()) ||
+                      item.studentDesc.toLowerCase().includes(archiveSearchKeyword.toLowerCase()) ||
+                      item.address.toLowerCase().includes(archiveSearchKeyword.toLowerCase());
+                    const matchDistrict = archiveSearchDistrict === '全部' || item.district === archiveSearchDistrict;
+                    const matchSubject = archiveSearchSubject === '全部' || item.subject === archiveSearchSubject;
+                    return matchKeyword && matchDistrict && matchSubject;
+                  });
+
+                  return filteredArchives.length === 0 ? (
+                    <div className="h-full flex flex-col items-center justify-center p-8 text-neutral-500 text-center">
+                      <Database className="w-8 h-8 text-neutral-700 stroke-1 mb-1.5" />
+                      <p className="text-[11px] font-bold">未找到匹配的归档记录</p>
+                      <p className="text-[10px] text-neutral-600 mt-0.5">请修改搜索条件后再试。</p>
                     </div>
-                  ))
-                )}
+                  ) : (
+                    filteredArchives.map(item => (
+                      <div
+                        key={item.id}
+                        className="p-3 md:px-6 md:py-3.5 hover:bg-neutral-850/15 flex flex-col md:flex-row items-start md:items-center text-xs opacity-75 gap-2"
+                      >
+                        {/* Mobile card style */}
+                        <div className="w-full">
+                          <div className="flex flex-wrap items-center gap-2 mb-1.5">
+                            <span className="font-mono font-bold text-neutral-500 select-all text-[10px]">{item.id}</span>
+                            <span className="bg-neutral-800 text-neutral-450 border border-neutral-750 px-1.5 py-0.5 rounded text-[9px] font-bold">
+                              {item.district || '未识别'}
+                            </span>
+                            <span className="bg-neutral-800 text-neutral-400 px-1.5 py-0.5 rounded text-[9px] font-bold">
+                              {item.grade} {item.subject}
+                            </span>
+                            <span className="font-mono font-bold text-neutral-400 text-[11px]">
+                              ¥{item.price}<span className="text-[9px] text-neutral-600">/时</span>
+                            </span>
+                          </div>
+                          <p className="text-neutral-400 font-medium truncate text-[11px]">{item.studentDesc}</p>
+                          <p className="text-[10px] text-neutral-600 truncate leading-none mt-1">地址: {item.address}</p>
+                          <p className="text-[9px] text-neutral-600 font-mono mt-1">{item.publishTime || '2026-06-04 11:00'}</p>
+                        </div>
+                      </div>
+                    ))
+                  );
+                })()}
               </div>
             </div>
           </div>
         )}
       </main>
+
+      {/* User Feedback Notifications Panel */}
+      {feedbacks.length > 0 && (
+        <div className="p-3 md:p-4 bg-[#0f1013] border-t border-neutral-800">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <HelpCircle className="w-4 h-4 text-blue-400" />
+              <span className="text-xs font-bold text-neutral-300">用户反馈 ({feedbacks.length})</span>
+              {feedbacks.some(f => !f.isRead) && (
+                <span className="bg-red-600 text-white text-[9px] font-bold px-1.5 py-0.5 rounded">
+                  {feedbacks.filter(f => !f.isRead).length} 未读
+                </span>
+              )}
+            </div>
+          </div>
+          
+          <div className="space-y-2 max-h-32 overflow-y-auto">
+            {feedbacks.slice().reverse().map(feedback => (
+              <div 
+                key={feedback.id} 
+                className={`p-2 rounded-lg text-xs ${feedback.isRead ? 'bg-neutral-900/50' : 'bg-blue-950/30 border border-blue-800/50'}`}
+                onClick={() => markFeedbackAsRead(feedback.id)}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-neutral-300 break-words">{feedback.content}</p>
+                    <p className="text-[9px] text-neutral-500 mt-1 font-mono">{feedback.submitTime}</p>
+                  </div>
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      deleteFeedback(feedback.id);
+                    }}
+                    className="p-1 hover:bg-neutral-800 rounded transition-colors shrink-0"
+                  >
+                    <X className="w-3 h-3 text-neutral-500" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Background decoration dots constraint - PC only */}
       <div className="hidden md:block absolute bottom-1 right-2 pointer-events-none text-[8.5px] font-mono text-neutral-750 select-none uppercase tracking-widest z-10">

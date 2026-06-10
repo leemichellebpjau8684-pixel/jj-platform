@@ -4,10 +4,10 @@ import {
   ChevronDown, SlidersHorizontal, Sparkles, DollarSign, Clock, Compass, 
   User, Map, ListFilter, Copy, RotateCcw, Info, ExternalLink, Eye, 
   Volume2, CheckCircle2, ChevronRight, Phone, BookOpen, HelpCircle,
-  Heart, Star, Trash2, Filter, ArrowUpDown
+  Heart, Star, Trash2, Filter, ArrowUpDown, MessageSquare
 } from 'lucide-react';
 
-import { Order, Landmark, FilterState, AdvancedFilterState, TravelMode, NavigationResult } from './types';
+import { Order, Landmark, FilterState, AdvancedFilterState, TravelMode, NavigationResult, Feedback } from './types';
 import { SHANGHAI_DISTRICTS, GRADES, SUBJECTS, SHANGHAI_UNIVERSITIES, SEED_ORDERS } from './data';
 import { getDistance } from './utils';
 import { loadAMapScript, planRoute } from './services/amap';
@@ -197,6 +197,53 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('jiajiao_archive_json', JSON.stringify(archives));
   }, [archives]);
+
+  const [feedbacks, setFeedbacks] = useState<Feedback[]>(() => {
+    try {
+      const cached = localStorage.getItem('jiajiao_feedback_json');
+      if (cached) {
+        return JSON.parse(cached);
+      }
+    } catch (e) {}
+    return [];
+  });
+
+  useEffect(() => {
+    localStorage.setItem('jiajiao_feedback_json', JSON.stringify(feedbacks));
+  }, [feedbacks]);
+
+  const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
+  const [feedbackContent, setFeedbackContent] = useState('');
+
+  const submitFeedback = () => {
+    if (!feedbackContent.trim()) return;
+    
+    const newFeedback: Feedback = {
+      id: `FEEDBACK-${Date.now()}`,
+      content: feedbackContent.trim(),
+      submitTime: new Date().toLocaleString('zh-CN', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+      }),
+      isRead: false
+    };
+    
+    setFeedbacks(prev => [...prev, newFeedback]);
+    setFeedbackContent('');
+    setIsFeedbackModalOpen(false);
+  };
+
+  const markFeedbackAsRead = (feedbackId: string) => {
+    setFeedbacks(prev => prev.map(f => f.id === feedbackId ? { ...f, isRead: true } : f));
+  };
+
+  const deleteFeedback = (feedbackId: string) => {
+    setFeedbacks(prev => prev.filter(f => f.id !== feedbackId));
+  };
 
   const [currentLandmark, setCurrentLandmark] = useState<Landmark | null>(() => {
     try {
@@ -701,6 +748,9 @@ export default function App() {
         stats={stats}
         setStats={setStats}
         onBackToUser={() => navigateTo('/')}
+        feedbacks={feedbacks}
+        markFeedbackAsRead={markFeedbackAsRead}
+        deleteFeedback={deleteFeedback}
       />
     );
   }
@@ -734,6 +784,19 @@ export default function App() {
         <button className="absolute top-3 left-3 w-12 h-12 bg-orange-500 rounded-full shadow-md flex items-center justify-center ring-2 ring-white hover:bg-orange-600 transition-colors" onClick={() => setIsLandmarkModalOpen(true)}>
           <MapPin className="w-6 h-6 text-white" />
         </button>
+        {/* Feedback button - Top Right (symmetric with location button) */}
+        <div className="absolute top-3 right-3 flex flex-col items-center">
+          <button className="w-12 h-12 bg-blue-500 rounded-full shadow-md flex items-center justify-center ring-2 ring-white hover:bg-blue-600 transition-colors" onClick={() => setIsFeedbackModalOpen(true)}>
+            <MessageSquare className="w-6 h-6 text-white" />
+          </button>
+          {/* Speech bubble tooltip */}
+          <div className="relative mt-1">
+            <div className="bg-orange-500 text-white text-[10px] font-bold px-2.5 py-1.5 rounded-full shadow-lg text-center max-w-[70px]">
+              点我反馈宝贵建议~
+            </div>
+            <div className="absolute -top-1 left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-b-4 border-transparent border-b-orange-500"></div>
+          </div>
+        </div>
         {/* Text content - centered */}
         <div className="relative text-center">
           <p className="text-red-600 text-sm font-bold leading-relaxed mb-1">
@@ -1367,6 +1430,19 @@ export default function App() {
                 <button className="absolute top-2 left-2 w-10 h-10 bg-orange-500 rounded-full shadow-md flex items-center justify-center ring-2 ring-white hover:bg-orange-600 transition-colors" onClick={() => setIsLandmarkModalOpen(true)}>
                   <MapPin className="w-5 h-5 text-white" />
                 </button>
+                {/* Feedback button - Top Right (symmetric with location button) */}
+                <div className="absolute top-2 right-2 flex flex-col items-center">
+                  <button className="w-10 h-10 bg-blue-500 rounded-full shadow-md flex items-center justify-center ring-2 ring-white hover:bg-blue-600 transition-colors" onClick={() => setIsFeedbackModalOpen(true)}>
+                    <MessageSquare className="w-5 h-5 text-white" />
+                  </button>
+                  {/* Speech bubble tooltip */}
+                  <div className="relative mt-1">
+                    <div className="bg-orange-500 text-white text-[8px] font-bold px-2 py-1 rounded-full shadow-lg text-center max-w-[60px]">
+                      点我反馈宝贵建议~
+                    </div>
+                    <div className="absolute -top-1 left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-3 border-r-3 border-b-3 border-transparent border-b-orange-500"></div>
+                  </div>
+                </div>
                 {/* Text content - centered */}
                 <div className="relative text-center">
                   <p className="text-gray-800 text-xs leading-relaxed mb-1.5 font-medium">
@@ -1764,9 +1840,7 @@ export default function App() {
                       <div className="flex justify-between items-center pt-3 border-t border-gray-100">
                         <div className="flex items-center gap-3">
                           <div className="text-orange-600 font-bold text-xl">
-                            {order.price === 0 && !order.priceText ? (
-                              <span className="text-base font-semibold text-emerald-600">老师合理报价</span>
-                            ) : order.isNegotiable ? (
+                            {order.isNegotiable ? (
                               <span className="text-base font-semibold text-emerald-600">教员报价</span>
                             ) : order.priceText ? (
                               <span className="text-lg">{order.priceText}</span>
@@ -2813,6 +2887,54 @@ export default function App() {
               <Phone className="w-3.5 h-3.5" />
               <span>添加微信领单</span>
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Feedback Modal */}
+      {isFeedbackModalOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-xl">
+            <div className="flex items-center justify-between p-4 border-b border-gray-100">
+              <div className="flex items-center gap-2">
+                <HelpCircle className="w-5 h-5 text-blue-500" />
+                <h3 className="font-bold text-gray-800">意见反馈</h3>
+              </div>
+              <button onClick={() => setIsFeedbackModalOpen(false)} className="p-1 hover:bg-gray-100 rounded-full transition-colors">
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+            <div className="p-4">
+              <p className="text-sm text-gray-500 mb-3">
+                感谢您的反馈！请告诉我们您的意见或建议，帮助我们做得更好。
+              </p>
+              <textarea
+                value={feedbackContent}
+                onChange={(e) => setFeedbackContent(e.target.value)}
+                placeholder="请输入您的反馈内容..."
+                className="w-full h-32 p-3 border border-gray-200 rounded-xl resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && e.ctrlKey) {
+                    submitFeedback();
+                  }
+                }}
+              />
+              <div className="flex justify-end gap-2 mt-4">
+                <button
+                  onClick={() => setIsFeedbackModalOpen(false)}
+                  className="px-4 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={submitFeedback}
+                  disabled={!feedbackContent.trim()}
+                  className="px-4 py-2 text-sm font-semibold bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
+                >
+                  提交反馈
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
