@@ -1696,7 +1696,9 @@ export default function AdminDashboard({
 
                           {/* Price */}
                           <span className="w-32 font-mono font-bold text-[12px]">
-                            {item.price === 0 ? (
+                            {item.isNegotiable ? (
+                              <span className="text-emerald-450">教员报价</span>
+                            ) : item.price === 0 ? (
                               <span className="text-neutral-450">教员报价</span>
                             ) : (
                               <span className="text-orange-450">¥{item.price} <span className="text-[9px] text-neutral-500 font-normal">/小时</span></span>

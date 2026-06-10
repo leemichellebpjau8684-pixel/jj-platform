@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { MapPin, Search, School, Navigation, X, Check, ArrowLeft, Loader } from 'lucide-react';
 import { Landmark, Coordinate } from '../types';
 import { SHANGHAI_UNIVERSITIES } from '../data';
-import { reverseGeocode, searchPOIs } from '../services/amap';
+import { reverseGeocode, searchPOIs, loadAMapScript } from '../services/amap';
 
 interface LandmarkModalProps {
   isOpen: boolean;
@@ -41,84 +41,111 @@ export default function LandmarkModal({
     { id: 'sjdxc', name: '松江大学城地铁站', address: '松江区嘉松南路与梅家路交叉口', coordinate: { lat: 31.0454, lng: 121.2285 }, type: 'custom' }
   ];
 
-  const handleGpsLocate = () => {
+  const handleGpsLocate = async () => {
     setGpsLoading(true);
     setGpsError(null);
     setNearbyLandmarks([]);
     
-    const simulateGpsSuccess = () => {
-      const isWithinShanghai = true;
-      const targetLat = 31.2304;
-      const targetLng = 121.4737;
-
-      const resolvedGpsLandmark: Landmark = {
-        id: 'gps_' + Date.now(),
-        name: '当前定位位置',
-        address: '上海市徐汇区淮海中路街道 (GPS定位点)',
-        coordinate: { lat: targetLat, lng: targetLng },
-        type: 'gps'
-      };
-      setSelectedTempLandmark(resolvedGpsLandmark);
-
-      const mockNearbyLandmarks: Landmark[] = [
-        { id: 'near_1', name: '地面停车场', address: '上海市车站西路与车站北路交叉口北140米', coordinate: { lat: 31.2310, lng: 121.4720 }, type: 'custom', distance: 0.1 },
-        { id: 'near_2', name: '欣逸家园停车场', address: '上海市江湾欣逸家园(宝丰联大酒店西北)', coordinate: { lat: 31.2320, lng: 121.4710 }, type: 'custom', distance: 0.2 },
-        { id: 'near_3', name: '川野装饰&川盾消防', address: '上海市文治路30弄小区东门旁', coordinate: { lat: 31.2290, lng: 121.4740 }, type: 'custom', distance: 0.2 },
-        { id: 'near_4', name: '洪福平价茶叶(江湾店)', address: '上海市新市南路1209号', coordinate: { lat: 31.2330, lng: 121.4750 }, type: 'custom', distance: 0.3 },
-        { id: 'near_5', name: '江湾公园', address: '上海市虹口区新市北路1509号', coordinate: { lat: 31.2350, lng: 121.4730 }, type: 'custom', distance: 0.4 },
-        { id: 'near_6', name: '华联超市', address: '上海市虹口区丰镇路169号', coordinate: { lat: 31.2340, lng: 121.4700 }, type: 'custom', distance: 0.5 }
-      ];
-      setNearbyLandmarks(mockNearbyLandmarks);
+    try {
+      // 使用高德地图定位服务
+      await loadAMapScript();
+      
+      const AMap = (window as any).AMap;
+      if (!AMap) {
+        throw new Error('高德地图加载失败');
+      }
+      
+      // 确保Geolocation插件已加载
+      await new Promise<void>((resolve, reject) => {
+        AMap.plugin('AMap.Geolocation', () => {
+          const geolocation = new AMap.Geolocation({
+            enableHighAccuracy: true, // 使用高精度定位
+            timeout: 10000,
+            buttonOffset: new AMap.Pixel(10, 20),
+            zoomToAccuracy: true,
+            buttonPosition: 'RB'
+          });
+          
+          geolocation.getCurrentPosition(async (status: string, result: any) => {
+            if (status === 'complete') {
+              try {
+                const { position } = result;
+                const lng = position.getLng();
+                const lat = position.getLat();
+                const coordinate: Coordinate = { lat, lng };
+                
+                // 使用反向地理编码获取真实地址
+                const geoResolved = await reverseGeocode(coordinate);
+                
+                const resolvedGpsLandmark: Landmark = {
+                  id: 'gps_' + Date.now(),
+                  name: geoResolved.name || '当前位置',
+                  address: geoResolved.address,
+                  coordinate,
+                  type: 'gps'
+                };
+                setSelectedTempLandmark(resolvedGpsLandmark);
+                
+                // 使用搜索附近的POI
+                const nearbyPOIs = await searchPOIs(geoResolved.name || '当前位置');
+                
+                // 合并POI结果，最多显示6个附近地标
+                const nearbyResults = nearbyPOIs.slice(0, 6).map((poi, idx) => ({
+                  ...poi,
+                  distance: getDistanceFromCoords(coordinate, poi.coordinate)
+                }));
+                
+                // 如果POI结果不足，添加默认附近地标
+                if (nearbyResults.length < 6) {
+                  const defaultNearby: Landmark[] = [
+                    { id: 'near_default_1', name: '地面停车场', address: `${geoResolved.address}附近停车场`, coordinate: { lat: lat + 0.001, lng: lng - 0.001 }, type: 'custom', distance: getDistanceFromCoords(coordinate, { lat: lat + 0.001, lng: lng - 0.001 }) },
+                    { id: 'near_default_2', name: '便利店/超市', address: `${geoResolved.address}附近便利店`, coordinate: { lat: lat + 0.0008, lng: lng + 0.0008 }, type: 'custom', distance: getDistanceFromCoords(coordinate, { lat: lat + 0.0008, lng: lng + 0.0008 }) },
+                    { id: 'near_default_3', name: '公交站', address: `${geoResolved.address}附近公交站`, coordinate: { lat: lat - 0.0012, lng: lng + 0.0005 }, type: 'custom', distance: getDistanceFromCoords(coordinate, { lat: lat - 0.0012, lng: lng + 0.0005 }) }
+                  ];
+                  nearbyResults.push(...defaultNearby.filter(d => !nearbyResults.find(r => r.id === d.id)).slice(0, 6 - nearbyResults.length));
+                }
+                
+                setNearbyLandmarks(nearbyResults.sort((a, b) => (a.distance || 0) - (b.distance || 0)));
+                setGpsLoading(false);
+              } catch (geoError) {
+                console.error('地理编码失败:', geoError);
+                // 即使地理编码失败，也使用原始坐标
+                const coordinate: Coordinate = { lat: result.position.getLat(), lng: result.position.getLng() };
+                const resolvedGpsLandmark: Landmark = {
+                  id: 'gps_' + Date.now(),
+                  name: '当前位置',
+                  address: `经度:${lng.toFixed(4)}, 纬度:${lat.toFixed(4)}`,
+                  coordinate,
+                  type: 'gps'
+                };
+                setSelectedTempLandmark(resolvedGpsLandmark);
+                setNearbyLandmarks([]);
+                setGpsLoading(false);
+              }
+            } else {
+              // 定位失败
+              throw new Error('无法获取您的位置信息，请检查定位权限设置');
+            }
+          });
+        });
+      });
+    } catch (error) {
+      console.error('GPS定位失败:', error);
+      setGpsError(error instanceof Error ? error.message : '定位服务不可用，请检查浏览器定位权限设置');
       setGpsLoading(false);
-    };
-
-    if (!navigator.geolocation) {
-      setGpsError('您的浏览器不支持自动定位功能。');
-      setGpsLoading(false);
-      return;
     }
-    
-    navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        const { latitude, longitude } = position.coords;
-        const isWithinShanghai = latitude > 30.5 && latitude < 31.9 && longitude > 120.8 && longitude < 122.2;
-        
-        let targetLat = latitude;
-        let targetLng = longitude;
-        
-        if (!isWithinShanghai) {
-          targetLat = 31.2304;
-          targetLng = 121.4737;
-        }
-
-        const resolvedGpsLandmark: Landmark = {
-          id: 'gps_' + Date.now(),
-          name: isWithinShanghai ? '当前定位位置' : '当前定位 (已自动映射至上海市中心)',
-          address: isWithinShanghai 
-            ? `徐汇区淮海中路街道 (上海高精度GPS定位点)`
-            : '黄浦区人民广场1号 (因GPS在上海海外，自动映射)',
-          coordinate: { lat: targetLat, lng: targetLng },
-          type: 'gps'
-        };
-        setSelectedTempLandmark(resolvedGpsLandmark);
-
-        const mockNearbyLandmarks: Landmark[] = [
-          { id: 'near_1', name: '地面停车场', address: '上海市车站西路与车站北路交叉口北140米', coordinate: { lat: targetLat + 0.0006, lng: targetLng - 0.0006 }, type: 'custom', distance: 0.1 },
-          { id: 'near_2', name: '欣逸家园停车场', address: '上海市江湾欣逸家园(宝丰联大酒店西北)', coordinate: { lat: targetLat + 0.0016, lng: targetLng - 0.0016 }, type: 'custom', distance: 0.2 },
-          { id: 'near_3', name: '川野装饰&川盾消防', address: '上海市文治路30弄小区东门旁', coordinate: { lat: targetLat - 0.0014, lng: targetLng + 0.0004 }, type: 'custom', distance: 0.2 },
-          { id: 'near_4', name: '洪福平价茶叶(江湾店)', address: '上海市新市南路1209号', coordinate: { lat: targetLat + 0.0026, lng: targetLng + 0.0014 }, type: 'custom', distance: 0.3 },
-          { id: 'near_5', name: '江湾公园', address: '上海市虹口区新市北路1509号', coordinate: { lat: targetLat + 0.0046, lng: targetLng - 0.0007 }, type: 'custom', distance: 0.4 },
-          { id: 'near_6', name: '华联超市', address: '上海市虹口区丰镇路169号', coordinate: { lat: targetLat + 0.0036, lng: targetLng - 0.0037 }, type: 'custom', distance: 0.5 }
-        ];
-        setNearbyLandmarks(mockNearbyLandmarks);
-        setGpsLoading(false);
-      },
-      (error) => {
-        console.warn('GPS error:', error);
-        simulateGpsSuccess();
-      },
-      { timeout: 3000 }
-    );
+  };
+  
+  // 计算两点之间的距离（公里）
+  const getDistanceFromCoords = (from: Coordinate, to: Coordinate): number => {
+    const R = 6371; // 地球半径（公里）
+    const dLat = (to.lat - from.lat) * Math.PI / 180;
+    const dLon = (to.lng - from.lng) * Math.PI / 180;
+    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+              Math.cos(from.lat * Math.PI / 180) * Math.cos(to.lat * Math.PI / 180) *
+              Math.sin(dLon/2) * Math.sin(dLon/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return Number((R * c).toFixed(2));
   };
 
   const handleSearch = async () => {

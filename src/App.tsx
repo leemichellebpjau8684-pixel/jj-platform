@@ -2187,7 +2187,7 @@ export default function App() {
                         <div className="flex items-center justify-between text-xs text-gray-500">
                           <div className="flex items-center gap-3">
                             <span className="text-orange-600 font-bold">
-                              {order.price === 0 ? '教员报价' : (order.priceText || `${order.price}元/h`)}
+                              {order.isNegotiable || order.price === 0 ? '教员报价' : (order.priceText || `${order.price}元/h`)}
                             </span>
                             <span className="flex items-center gap-1">
                               <MapPin className="w-3 h-3" />
