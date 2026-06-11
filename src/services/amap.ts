@@ -14,6 +14,12 @@ export const AMAP_WEB_CONFIG = {
   securityCode: (ENV.VITE_AMAP_WEB_SECURITY_CODE as string) || '',
 };
 
+console.debug('AMAP_CONFIG loaded:', {
+  hasKey: !!AMAP_CONFIG.key,
+  hasSecurityCode: !!AMAP_CONFIG.securityJsCode,
+  keyLength: AMAP_CONFIG.key ? AMAP_CONFIG.key.length : 0,
+});
+
 const SHANGHAI_BBOX = { latMin: 30.5, latMax: 31.9, lngMin: 120.8, lngMax: 122.2 };
 export const SHANGHAI_CENTER: Coordinate = { lat: 31.2304, lng: 121.4737 };
 
@@ -53,23 +59,35 @@ export function loadAMapScript(): Promise<void> {
       return;
     }
 
-    if (!AMAP_CONFIG.key) {
-      reject(new Error('高德地图API密钥未配置，请在.env文件中设置VITE_AMAP_JS_KEY'));
+    const apiKey = AMAP_CONFIG.key || (window as any).AMAP_KEY || '';
+    const securityCode = AMAP_CONFIG.securityJsCode || (window as any).AMAP_SECURITY_CODE || '';
+
+    if (!apiKey) {
+      reject(new Error('高德地图API密钥未配置，请检查环境变量VITE_AMAP_JS_KEY是否正确设置'));
       return;
     }
 
     (window as any)._AMapSecurityConfig = {
-      securityJsCode: AMAP_CONFIG.securityJsCode,
+      securityJsCode: securityCode,
     };
 
     const script = document.createElement('script');
     script.type = 'text/javascript';
     script.src =
-      `https://webapi.amap.com/maps?v=2.0&key=${AMAP_CONFIG.key}` +
+      `https://webapi.amap.com/maps?v=2.0&key=${apiKey}` +
       `&plugin=AMap.Geocoder,AMap.DistrictSearch,AMap.PlaceSearch`;
     script.async = true;
-    script.onerror = () => reject(new Error('高德地图脚本加载失败，请检查网络连接或API密钥配置'));
-    script.onload = () => resolve();
+    script.onerror = (event: Event | string) => {
+      const errorMsg = typeof event === 'string' ? event : (event as ErrorEvent).message || '加载失败';
+      reject(new Error(`高德地图脚本加载失败: ${errorMsg}，请检查网络连接或API密钥配置`));
+    };
+    script.onload = () => {
+      if ((window as any).AMap) {
+        resolve();
+      } else {
+        reject(new Error('高德地图脚本加载后AMAP对象未定义'));
+      }
+    };
     document.head.appendChild(script);
   });
 

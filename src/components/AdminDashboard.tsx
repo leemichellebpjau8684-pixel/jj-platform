@@ -1209,7 +1209,7 @@ export default function AdminDashboard({
                 )}
               </div>
 
-              {/* Draft Cards List */
+              {/* Draft Cards List */}
               <div className="flex-1 min-h-[200px] overflow-y-auto space-y-2.5 pr-1 font-sans">
                 {drafts.length === 0 ? (
                   <div className="h-full flex flex-col items-center justify-center p-8 bg-neutral-900/10 rounded-xl border-2 border-dashed border-neutral-800 text-center">

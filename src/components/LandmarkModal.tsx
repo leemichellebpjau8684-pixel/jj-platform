@@ -90,7 +90,7 @@ export default function LandmarkModal({
                 const nearbyPOIs = await searchPOIs(geoResolved.name || '当前位置');
                 
                 // 合并POI结果，最多显示6个附近地标
-                const nearbyResults = nearbyPOIs.slice(0, 6).map((poi, idx) => ({
+                const nearbyResults: Landmark[] = nearbyPOIs.slice(0, 6).map((poi, idx) => ({
                   ...poi,
                   distance: getDistanceFromCoords(coordinate, poi.coordinate)
                 }));
@@ -102,7 +102,8 @@ export default function LandmarkModal({
                     { id: 'near_default_2', name: '便利店/超市', address: `${geoResolved.address}附近便利店`, coordinate: { lat: lat + 0.0008, lng: lng + 0.0008 }, type: 'custom', distance: getDistanceFromCoords(coordinate, { lat: lat + 0.0008, lng: lng + 0.0008 }) },
                     { id: 'near_default_3', name: '公交站', address: `${geoResolved.address}附近公交站`, coordinate: { lat: lat - 0.0012, lng: lng + 0.0005 }, type: 'custom', distance: getDistanceFromCoords(coordinate, { lat: lat - 0.0012, lng: lng + 0.0005 }) }
                   ];
-                  nearbyResults.push(...defaultNearby.filter(d => !nearbyResults.find(r => r.id === d.id)).slice(0, 6 - nearbyResults.length));
+                  const filteredDefaults = defaultNearby.filter(d => !nearbyResults.find(r => r.id === d.id)).slice(0, 6 - nearbyResults.length);
+                  nearbyResults.push(...filteredDefaults);
                 }
                 
                 setNearbyLandmarks(nearbyResults.sort((a, b) => (a.distance || 0) - (b.distance || 0)));
@@ -114,7 +115,7 @@ export default function LandmarkModal({
                 const resolvedGpsLandmark: Landmark = {
                   id: 'gps_' + Date.now(),
                   name: '当前位置',
-                  address: `经度:${lng.toFixed(4)}, 纬度:${lat.toFixed(4)}`,
+                  address: `经度:${coordinate.lng.toFixed(4)}, 纬度:${coordinate.lat.toFixed(4)}`,
                   coordinate,
                   type: 'gps'
                 };
