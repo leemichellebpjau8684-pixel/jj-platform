@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useMemo } from 'react';
 import { Compass, RotateCcw, MapPin, Navigation, Search, X, Phone, Clock, DollarSign, Map, ChevronRight, CheckCircle2 } from 'lucide-react';
 import { Landmark, Order, Coordinate } from '../types';
-import { loadAMapScript, AMAP_CONFIG, forwardGeocode, reverseGeocode } from '../services/amap';
+import { loadAMapScript, resetAMapLoad, AMAP_CONFIG, forwardGeocode, reverseGeocode } from '../services/amap';
 import { getDistance } from '../utils';
 
 interface ShanghaiRadarMapProps {
@@ -13,6 +13,7 @@ interface ShanghaiRadarMapProps {
   onModifyLandmark: () => void;
   activeTab: 'list' | 'map';
   onUpdateLandmark: (landmark: Landmark) => void;
+  onViewOrderDetail: (order: Order) => void;
 }
 
 export default function ShanghaiRadarMap({
@@ -24,6 +25,7 @@ export default function ShanghaiRadarMap({
   onModifyLandmark,
   activeTab,
   onUpdateLandmark,
+  onViewOrderDetail,
 }: ShanghaiRadarMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<any>(null);
@@ -454,11 +456,8 @@ export default function ShanghaiRadarMap({
       <div className="absolute top-3 left-3 bg-neutral-950/90 backdrop-blur border border-neutral-800 p-3 rounded-xl z-30 max-w-xs space-y-2 shadow-2xl select-none">
         <h4 className="text-xs font-extrabold text-orange-500 tracking-wide flex items-center gap-1.5">
           <Compass className="w-4 h-4" />
-          <span>附近家教地图</span>
+          <span>请先在列表视图设置好筛选条件和搜索范围（高级筛选）</span>
         </h4>
-        <p className="text-[10px] text-neutral-400 leading-snug">
-          地图显示家教订单位置，点击标记查看详细信息
-        </p>
 
         {showManualLocation ? (
           <div className="space-y-2">
@@ -570,9 +569,43 @@ export default function ShanghaiRadarMap({
       {/* Loading & Error Boundary */}
       {loadError ? (
         <div className="flex-1 flex flex-col items-center justify-center p-6 text-center select-none bg-neutral-900 border border-neutral-800">
-          <div className="text-3xl mb-2">📡</div>
-          <h4 className="font-bold text-red-500 text-sm">高德底图异常</h4>
-          <p className="text-xs text-neutral-400 mt-2 max-w-xs leading-relaxed">{loadError}</p>
+          <div className="text-4xl mb-4">🗺️</div>
+          <h4 className="font-bold text-red-500 text-sm mb-2">地图加载失败</h4>
+          <p className="text-xs text-neutral-400 max-w-xs leading-relaxed mb-4">{loadError}</p>
+          <div className="bg-neutral-800/50 rounded-lg p-4 text-left max-w-xs">
+            <p className="text-[10px] text-neutral-500 mb-2">📝 解决方案：</p>
+            <ul className="text-[10px] text-neutral-400 space-y-1.5">
+              <li className="flex items-start gap-1.5">
+                <span className="text-orange-400">•</span>
+                <span>请检查网络连接是否正常</span>
+              </li>
+              <li className="flex items-start gap-1.5">
+                <span className="text-orange-400">•</span>
+                <span>确保已正确配置高德地图API密钥</span>
+              </li>
+              <li className="flex items-start gap-1.5">
+                <span className="text-orange-400">•</span>
+                <span>在 .env 文件中设置 VITE_AMAP_JS_KEY</span>
+              </li>
+            </ul>
+          </div>
+          <button
+            onClick={() => {
+              setIsLoaded(false);
+              setLoadError(null);
+              resetAMapLoad();
+              loadAMapScript()
+                .then(() => {
+                  setIsLoaded(true);
+                })
+                .catch((err) => {
+                  setLoadError(err.message);
+                });
+            }}
+            className="mt-4 px-4 py-2 bg-orange-500 text-white text-xs font-bold rounded-lg hover:bg-orange-600 transition-colors"
+          >
+            重新加载地图
+          </button>
         </div>
       ) : !isLoaded ? (
         <div className="flex-1 flex flex-col items-center justify-center bg-[#111216] text-center select-none">
@@ -685,18 +718,14 @@ export default function ShanghaiRadarMap({
 
             <div className="flex gap-2">
               <button
-                onClick={() => {
-                  const parentNav = document.getElementById('tab-switch-regular-list-btn');
-                  if (parentNav) {
-                    parentNav.click();
-                  }
-                  setSelectedMapOrder(null);
-                }}
-                className="flex-1 px-3 py-2 bg-neutral-800 hover:bg-neutral-700 text-white text-[10px] rounded-lg font-bold transition flex items-center justify-center gap-1 cursor-pointer"
-              >
-                <span>查看需求书</span>
-                <ChevronRight className="w-3 h-3" />
-              </button>
+                  onClick={() => {
+                    onViewOrderDetail(selectedMapOrder);
+                  }}
+                  className="flex-1 px-3 py-2 bg-neutral-800 hover:bg-neutral-700 text-white text-[10px] rounded-lg font-bold transition flex items-center justify-center gap-1 cursor-pointer"
+                >
+                  <span>查看需求书</span>
+                  <ChevronRight className="w-3 h-3" />
+                </button>
               
               <button
                 onClick={() => {

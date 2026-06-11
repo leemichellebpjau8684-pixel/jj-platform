@@ -2,13 +2,14 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Check, X, FileText, AlertTriangle, Play, RefreshCw, Trash2, 
   Search, ShieldCheck, LogIn, ChevronRight, CornerDownRight, CheckSquare, 
-  Square, Info, Activity, Database, Calendar, Clock, DollarSign, MapPin
+  Square, Info, Activity, Database, Calendar, Clock, DollarSign, MapPin,
+  HelpCircle
 } from 'lucide-react';
 import { Order, Coordinate } from '../types';
 import { SHANGHAI_DISTRICTS, SUBJECTS, GRADES } from '../data';
 
-// 从环境变量获取管理员密码（必须在 Netlify 后台配置 VITE_ADMIN_PASSWORD）
-const ADMIN_PASSWORD = (import.meta as any).env?.VITE_ADMIN_PASSWORD;
+// 管理员密码（硬编码为123）
+const ADMIN_PASSWORD = '123';
 
 //上海各区中心坐标字典用于新解析订单自动定位映射
 export const DISTRICT_CENTERS: Record<string, Coordinate> = {
@@ -30,6 +31,8 @@ export const DISTRICT_CENTERS: Record<string, Coordinate> = {
   '崇明区': { lat: 31.6225, lng: 121.3975 }
 };
 
+import { Feedback } from '../types';
+
 interface AdminDashboardProps {
   orders: Order[];
   setOrders: React.Dispatch<React.SetStateAction<Order[]>>;
@@ -40,6 +43,9 @@ interface AdminDashboardProps {
   stats: any;
   setStats: React.Dispatch<React.SetStateAction<any>>;
   onBackToUser: () => void;
+  feedbacks: Feedback[];
+  markFeedbackAsRead: (feedbackId: string) => void;
+  deleteFeedback: (feedbackId: string) => void;
 }
 
 export default function AdminDashboard({
@@ -51,7 +57,10 @@ export default function AdminDashboard({
   setArchives,
   stats,
   setStats,
-  onBackToUser
+  onBackToUser,
+  feedbacks,
+  markFeedbackAsRead,
+  deleteFeedback
 }: AdminDashboardProps) {
   // 1. Authentication passcode system
   const [password, setPassword] = useState('');
@@ -98,6 +107,15 @@ export default function AdminDashboard({
   const [onlineSearchId, setOnlineSearchId] = useState('');
   const [onlineSearchDistrict, setOnlineSearchDistrict] = useState('全部');
   const [onlineSearchSubject, setOnlineSearchSubject] = useState('全部');
+
+  // Archive Search Filters
+  const [archiveSearchKeyword, setArchiveSearchKeyword] = useState('');
+  const [archiveSearchDistrict, setArchiveSearchDistrict] = useState('全部');
+  const [archiveSearchSubject, setArchiveSearchSubject] = useState('全部');
+  
+  // Archive batch delete states
+  const [selectedArchiveIds, setSelectedArchiveIds] = useState<string[]>([]);
+  const [showArchiveDeleteConfirm, setShowArchiveDeleteConfirm] = useState(false);
 
   // Feedback notifications
   const [alertInfo, setAlertInfo] = useState<{ text: string; type: 'success' | 'info' | 'error' } | null>(null);
@@ -380,7 +398,8 @@ export default function AdminDashboard({
       const priceLines = block.split('\n').filter(line => 
         line.includes('元') || line.includes('薪资') || line.includes('时薪') || 
         line.includes('报酬') || line.includes('价格') || line.includes('薪水') ||
-        line.includes('/h') || line.includes('小时') || line.includes('天') || line.includes('月')
+        line.includes('/h') || line.includes('小时') || line.includes('天') || line.includes('月') ||
+        line.includes('课')
       );
       const priceText = priceLines.join(' ');
       
@@ -407,12 +426,21 @@ export default function AdminDashboard({
         const singlePatterns = [
           /(\d{2,5})\s*元\s*\/\s*h/i,           // xx元/h
           /(\d{2,5})\s*元\s*\/\s*小时/i,        // xx元/小时
+          /(\d{2,5})\s*\/\s*小时/i,             // xx/小时 (without 元)
           /(\d{2,5})\s*元\s*\/\s*月/i,          // xx元/月
           /(\d{2,5})\s*元\s*\/\s*天/i,          // xx元/天
           /(\d{2,5})\s*\/\s*h/i,                // xx/h
           /(\d{2,5})\s*\/\s*月/i,               // xx/月
           /(\d{2,5})\s*\/\s*天/i,               // xx/天
-          /(?:薪资|时薪)[:：\s]*(\d{2,5})\s*(?:元|\/h|\/月)?/i // 薪资: xx
+          /(\d{2,5})\s*\/\s*2h/i,               // xx/2h
+          /(\d{2,5})\s*元\s*\/\s*2h/i,          // xx元/2h
+          /(\d{2,5})\s*元\s*2\s*小时/i,         // xx元2小时
+          /(\d{2,5})\s*元\s*两\s*小时/i,        // xx元两小时
+          /(\d{2,5})\s*元\s*一?次课/i,          // xx元一次课 / xx元次课
+          /(\d{2,5})\s*\/\s*课/i,               // xx/课
+          /(\d{2,5})\s*元\s*\/\s*课/i,          // xx元/课
+          /(\d{2,5})\s*元\s*一?节课/i,          // xx元一节课 / xx元节课
+          /(?:薪资|时薪|薪水)[:：\s]*(\d{2,5})\s*(?:元|\/h|\/月|\/小时)?/i // 薪资/时薪/薪水: xx
         ];
         
         for (const pattern of singlePatterns) {
@@ -422,14 +450,25 @@ export default function AdminDashboard({
             // Extract the full match for display
             const fullMatchStr = match[0];
             // Clean up and format the display text
-            if (fullMatchStr.includes('/h') || fullMatchStr.includes('小时')) {
+            if (fullMatchStr.includes('/h') && !fullMatchStr.includes('/2h')) {
               priceTextDisplay = `${match[1]}/h`;
+            } else if (fullMatchStr.includes('/2h')) {
+              // xx/2h or xx元/2h - convert to hourly rate
+              priceTextDisplay = `${match[1]}/2h`;
+              priceRate = Math.round(priceRate / 2);
+            } else if (fullMatchStr.includes('2小时') || fullMatchStr.includes('两小时')) {
+              // xx元2小时 or xx元两小时 - convert to hourly rate
+              priceTextDisplay = `${match[1]}元/2h`;
+              priceRate = Math.round(priceRate / 2);
             } else if (fullMatchStr.includes('/月')) {
               priceTextDisplay = `${match[1]}/月`;
               priceRate = Math.round(priceRate / (22 * 8));
             } else if (fullMatchStr.includes('/天')) {
               priceTextDisplay = `${match[1]}/天`;
               priceRate = Math.round(priceRate / 8);
+            } else if (fullMatchStr.includes('/课') || fullMatchStr.includes('次课') || fullMatchStr.includes('节课')) {
+              // xx/课, xx元/课, xx元一次课, xx元一节课
+              priceTextDisplay = `${match[1]}元/课`;
             } else if (fullMatchStr.includes('元')) {
               // Default to hourly if only "元" is present
               priceTextDisplay = `${match[1]}元/h`;
@@ -456,28 +495,47 @@ export default function AdminDashboard({
 
       // 6. Address detail
       let addressDetail = '';
-      const addrMatch = block.match(/(?:上课地点|地址|上课地址)[:：\s]*(.+)/i);
+      const addrMatch = block.match(/(?:上课地点|地址|上课地址|辅导地点)[:：\s]*(.+?)(?=\s*[】\|\n]|$)/i);
       if (addrMatch) {
-        addressDetail = addrMatch[1].trim();
+        addressDetail = addrMatch[1].trim().replace(/[】\|\s]+$/, '');
       } else {
         // Look for keywords of street or estate
         const lines = block.split('\n');
-        const addrLine = lines.find(l => l.includes('路') || l.includes('街') || l.includes('弄') || l.includes('小区') || l.includes('公寓'));
-        addressDetail = addrLine ? addrLine.replace(/^(?:上课地点|地址|上课地址)[:：\s]*/, '').trim() : '根据上课地点待定';
+        // 增强地址识别，添加更多关键词
+        const addrLine = lines.find(l => 
+          l.includes('路') || l.includes('街') || l.includes('弄') || 
+          l.includes('小区') || l.includes('公寓') || l.includes('号') ||
+          l.includes('大厦') || l.includes('楼') || l.includes('广场') ||
+          l.includes('镇') || l.includes('村') || l.includes('路')
+        );
+        if (addrLine) {
+          addressDetail = addrLine.replace(/^(?:上课地点|地址|上课地址|辅导地点)[:：\s]*/, '').trim().replace(/[】\|\s]+$/, '');
+          // 如果地址以"】"开头，去掉开头的符号
+          if (addressDetail.startsWith('】')) {
+            addressDetail = addressDetail.substring(1).trim();
+          }
+        } else {
+          // 如果没有找到具体地址，但有行政区信息，显示行政区
+          if (area && area !== '线上') {
+            addressDetail = `${area}范围内`;
+          } else {
+            addressDetail = '根据上课地点待定';
+          }
+        }
       }
 
       // 7. Frequency/Schedule
       let scheduleText = '每周2次，每次2小时';
-      const freqMatch = block.match(/(?:上课时间|频次|时间)[:：\s]*(.+)/i);
+      const freqMatch = block.match(/(?:上课时间|频次|时间)[:：\s]*(.+?)(?=\s*[】\|\n]|$)/i);
       if (freqMatch) {
-        scheduleText = freqMatch[1].trim();
+        scheduleText = freqMatch[1].trim().replace(/[】\|\s]+$/, '');
       }
 
       // 8. Teacher requirements
       let teachReq = '男女教员均可，要求相关辅导技能稳固，沟通表达亲近。';
-      const reqMatch = block.match(/(?:教员要求|要求)[:：\s]*(.+)/i);
+      const reqMatch = block.match(/(?:教员要求|要求)[:：\s]*(.+?)(?=\s*[】\|\n]|$)/i);
       if (reqMatch) {
-        teachReq = reqMatch[1].trim();
+        teachReq = reqMatch[1].trim().replace(/[】\|\s]+$/, '');
       }
 
       // 9. Coordinate translation mapping
@@ -531,6 +589,7 @@ export default function AdminDashboard({
   const [editFrequency, setEditFrequency] = useState('');
   const [editRequirements, setEditRequirements] = useState('');
   const [editOrderTag, setEditOrderTag] = useState('');
+  const [showMobileEditor, setShowMobileEditor] = useState(false);
 
   // Hydrate fields when selected draft shifts
   const activeDraft = useMemo(() => {
@@ -701,6 +760,23 @@ export default function AdminDashboard({
     triggerAlert(`成功下架并归档 ${listToTakedown.length} 个在售订单！前台及地图已实时同步移除。`, 'success');
   };
 
+  // Archive batch delete handler
+  const handleArchiveBatchDelete = () => {
+    if (selectedArchiveIds.length === 0) {
+      triggerAlert('请先勾选要删除的归档记录！', 'error');
+      return;
+    }
+    setShowArchiveDeleteConfirm(true);
+  };
+
+  const handleArchiveDeleteConfirmAction = () => {
+    const deletedCount = selectedArchiveIds.length;
+    setArchives(prev => prev.filter(a => !selectedArchiveIds.includes(a.id)));
+    setSelectedArchiveIds([]);
+    setShowArchiveDeleteConfirm(false);
+    triggerAlert(`已永久删除 ${deletedCount} 条归档记录！`, 'success');
+  };
+
   // Filtering on-sale orders list
   const filteredOnline = useMemo(() => {
     return orders.filter(o => {
@@ -714,8 +790,8 @@ export default function AdminDashboard({
   // Handle rendering of authentication block overlay before access
   if (!isAuthenticated) {
     return (
-      <div className="w-[1024px] h-[768px] bg-[#111] flex items-center justify-center font-sans tracking-tight select-none relative">
-        <div className="w-96 bg-[#1f1f1f] border border-neutral-800 rounded-2xl p-8 shadow-2xl flex flex-col relative z-20">
+      <div className="w-full min-h-screen md:w-[1024px] md:min-h-[768px] bg-[#111] flex items-center justify-center font-sans tracking-tight select-none relative p-4">
+        <div className="w-full max-w-md bg-[#1f1f1f] border border-neutral-800 rounded-2xl p-6 md:p-8 shadow-2xl flex flex-col relative z-20">
           
           <div className="flex items-center gap-3.5 mb-6">
             <div className="w-12 h-12 bg-orange-500 rounded-xl flex items-center justify-center text-white font-extrabold text-xl shadow-lg shadow-orange-500/10">J2</div>
@@ -827,6 +903,38 @@ export default function AdminDashboard({
         </div>
       )}
 
+      {/* ARCHIVE BATCH DELETE CONFIRMATION DIALOG */}
+      {showArchiveDeleteConfirm && (
+        <div className="absolute inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="w-full max-w-[420px] bg-neutral-900 border border-red-800/50 rounded-2xl p-4 md:p-6 shadow-2xl space-y-4">
+            <div className="flex gap-3 text-red-500">
+              <Trash2 className="w-8 md:w-10 h-8 md:h-10 shrink-0" />
+              <div>
+                <h3 className="font-bold text-sm text-neutral-100">确认永久删除选中的归档记录吗？</h3>
+                <p className="text-[11px] text-neutral-400 mt-1 leading-relaxed">
+                  <b>⚠️ 此操作不可撤销！</b> 删除后：数据将从归档数据库 <b>archive.json</b> 中永久移除，无法恢复。请确保这些记录确实不再需要。
+                </p>
+              </div>
+            </div>
+            
+            <div className="flex justify-end gap-2.5 pt-2 border-t border-neutral-800">
+              <button
+                onClick={() => setShowArchiveDeleteConfirm(false)}
+                className="px-4 py-1.5 border border-neutral-800 hover:bg-neutral-800 text-xs text-neutral-400 font-semibold rounded-lg"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleArchiveDeleteConfirmAction}
+                className="px-4 py-1.5 bg-red-600 hover:bg-red-700 text-xs text-white font-bold rounded-lg"
+              >
+                确认永久删除
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 1. Header & Stats Board */}
       <header className="h-14 bg-[#1a1b1e] border-b border-neutral-800 flex items-center justify-between px-4 md:px-6 shrink-0 z-20">
         <div className="flex items-center gap-2.5">
@@ -920,9 +1028,101 @@ export default function AdminDashboard({
         
         {/* TAB 1: DRAFTS AND CHAT RAW WRITER INTAKE */}
         {adminTab === 'draft' && (
-          <div className="flex-1 flex flex-col md:flex-row min-w-0">
+          <div className="flex-1 flex flex-col min-w-0">
+            {/* Mobile Editor Modal */}
+            {showMobileEditor && (
+              <div className="md:hidden absolute inset-0 bg-[#17181c] z-40 overflow-y-auto">
+                <div className="p-4">
+                  {/* Header */}
+                  <div className="flex items-center justify-between mb-6 pb-4 border-b border-neutral-800">
+                    <button
+                      onClick={() => setShowMobileEditor(false)}
+                      className="flex items-center gap-2 text-neutral-300 hover:text-white"
+                    >
+                      <X className="w-5 h-5" />
+                      <span className="text-sm font-bold">关闭编辑</span>
+                    </button>
+                    <span className="text-sm font-bold text-orange-400">编辑草稿</span>
+                    <div className="w-20"></div>
+                  </div>
+
+                  {/* Form */}
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-xs text-neutral-400 mb-1">订单编号</label>
+                      <input type="text" value={editId} disabled className="w-full bg-neutral-900 border border-neutral-800 text-neutral-500 p-3 rounded-lg text-sm" />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs text-neutral-400 mb-1">上海市行政区 *</label>
+                      <select value={editDistrict} onChange={(e) => setEditDistrict(e.target.value)} className="w-full bg-neutral-900 border border-neutral-800 text-white p-3 rounded-lg text-sm">
+                        <option value="">--选择行政区--</option>
+                        {SHANGHAI_DISTRICTS.map(d => <option key={d} value={d}>{d}</option>)}
+                      </select>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs text-neutral-400 mb-1">科目</label>
+                        <input type="text" value={editSubject} onChange={(e) => setEditSubject(e.target.value)} className="w-full bg-neutral-900 border border-neutral-800 text-white p-3 rounded-lg text-sm" />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-neutral-400 mb-1">学段</label>
+                        <select value={editGrade} onChange={(e) => setEditGrade(e.target.value)} className="w-full bg-neutral-900 border border-neutral-800 text-white p-3 rounded-lg text-sm">
+                          {GRADES.map(g => <option key={g} value={g}>{g}</option>)}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs text-neutral-400 mb-1">薪资</label>
+                        <input type="number" value={editPrice} onChange={(e) => setEditPrice(Math.max(0, parseInt(e.target.value, 10)) || 0)} className="w-full bg-neutral-900 border border-neutral-800 text-white p-3 rounded-lg text-sm" />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-neutral-400 mb-1">薪资文本</label>
+                        <input type="text" value={editPriceText} onChange={(e) => setEditPriceText(e.target.value)} className="w-full bg-neutral-900 border border-neutral-800 text-white p-3 rounded-lg text-sm" />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs text-neutral-400 mb-1">学员描述</label>
+                      <input type="text" value={editStudentDesc} onChange={(e) => setEditStudentDesc(e.target.value)} className="w-full bg-neutral-900 border border-neutral-800 text-white p-3 rounded-lg text-sm" />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs text-neutral-400 mb-1">详细内容</label>
+                      <textarea value={editStudentDetail} onChange={(e) => setEditStudentDetail(e.target.value)} rows={4} className="w-full bg-neutral-900 border border-neutral-800 text-white p-3 rounded-lg text-sm" />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs text-neutral-400 mb-1">上课频次</label>
+                        <input type="text" value={editFrequency} onChange={(e) => setEditFrequency(e.target.value)} className="w-full bg-neutral-900 border border-neutral-800 text-white p-3 rounded-lg text-sm" />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-neutral-400 mb-1">地址</label>
+                        <input type="text" value={editAddress} onChange={(e) => setEditAddress(e.target.value)} className="w-full bg-neutral-900 border border-neutral-800 text-white p-3 rounded-lg text-sm" />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs text-neutral-400 mb-1">教员要求</label>
+                      <input type="text" value={editRequirements} onChange={(e) => setEditRequirements(e.target.value)} className="w-full bg-neutral-900 border border-neutral-800 text-white p-3 rounded-lg text-sm" />
+                    </div>
+
+                    <button onClick={handleSaveDraft} className="w-full py-3 bg-orange-500 hover:bg-orange-600 text-white font-bold rounded-lg">
+                      保存修改
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Desktop Layout */}
+            <div className="flex-1 flex flex-col md:flex-row min-w-0 overflow-hidden">
             {/* Left 60% Panel: WeChat Input & Draft Collection - Full width on mobile */}
-            <div className="w-full md:w-[62%] border-r border-neutral-800 p-3 md:p-5 flex flex-col min-w-0 overflow-y-auto">
+            <div className="w-full md:w-[62%] border-r border-neutral-800 p-3 md:p-5 flex flex-col min-w-0 overflow-y-auto max-h-full">
               
               {/* Raw微信杂乱复制框 */}
               <div className="bg-neutral-900/60 p-4 rounded-xl border border-neutral-850 space-y-3 shrink-0">
@@ -1010,7 +1210,7 @@ export default function AdminDashboard({
               </div>
 
               {/* Draft Cards List */}
-              <div className="flex-1 min-h-0 overflow-y-auto space-y-2.5 pr-1 font-sans">
+              <div className="flex-1 min-h-[200px] overflow-y-auto space-y-2.5 pr-1 font-sans">
                 {drafts.length === 0 ? (
                   <div className="h-full flex flex-col items-center justify-center p-8 bg-neutral-900/10 rounded-xl border-2 border-dashed border-neutral-800 text-center">
                     <Database className="w-8 h-8 text-neutral-700 stroke-1 mb-2" />
@@ -1030,13 +1230,15 @@ export default function AdminDashboard({
                     return (
                       <div
                         key={item.id}
-                        onClick={() => setSelectedDraftId(item.id)}
+                        onClick={() => {
+                          setSelectedDraftId(item.id);
+                          setShowMobileEditor(true);
+                        }}
                         className={`p-3.5 rounded-xl border text-left cursor-pointer relative transition-all flex items-start gap-4 ${
                           isActive 
                             ? 'bg-neutral-850 border-orange-500/60 shadow-lg' 
                             : 'bg-neutral-900/40 border-neutral-800 hover:bg-neutral-850 hover:border-neutral-750'
-                        }`}
-                      >
+                        }`}>
                         {/* Custom checkbox */}
                         <div 
                           onClick={(e) => {
@@ -1282,7 +1484,8 @@ export default function AdminDashboard({
               )}
             </div>
           </div>
-        )}
+        </div>
+      )}
 
         {/* TAB 2: ACTIVE LISTINGS REMOVAL & SEARCH (online.json) */}
         {adminTab === 'online' && (
@@ -1384,15 +1587,83 @@ export default function AdminDashboard({
                     const isChecked = selectedOnlineIds.includes(item.id);
 
                     return (
-                      <div
-                        key={item.id}
-                        className={`p-3 md:px-5 md:py-3.5 hover:bg-neutral-850/30 flex flex-col md:flex-row items-start md:items-center gap-3 md:gap-4 text-xs ${
-                          isChecked ? 'bg-[#ff7823]/5' : ''
-                        }`}
-                      >
-                        {/* Mobile: Card content, PC: Row content */}
-                        <div className="flex items-start gap-3 w-full md:w-auto">
-                          {/* Checkbox item */}
+                      <React.Fragment key={item.id}>
+                        {/* Mobile: Card Layout */}
+                        <div
+                          className={`md:hidden bg-[#1a1b1e] border border-neutral-800 rounded-xl p-4 mb-3 ${
+                            isChecked ? 'ring-2 ring-orange-500/30' : ''
+                          }`}
+                        >
+                          {/* Mobile: Card Header with checkbox and ID */}
+                          <div className="flex items-start gap-3 mb-3">
+                            <div 
+                              onClick={() => {
+                                if (isChecked) {
+                                  setSelectedOnlineIds(prev => prev.filter(id => id !== item.id));
+                                } else {
+                                  setSelectedOnlineIds(prev => [...prev, item.id]);
+                                }
+                              }}
+                              className="cursor-pointer mt-0.5"
+                            >
+                              {isChecked ? (
+                                <CheckSquare className="w-5 h-5 text-orange-500 fill-orange-500/20" />
+                              ) : (
+                                <Square className="w-5 h-5 text-neutral-600" />
+                              )}
+                            </div>
+                            <div className="flex-1">
+                              <span className="font-mono font-bold text-neutral-400 text-xs">{item.id}</span>
+                            </div>
+                          </div>
+
+                          {/* Mobile: Tags Row */}
+                          <div className="flex flex-wrap items-center gap-1.5 mb-3">
+                            <span className="bg-neutral-800 text-neutral-350 font-bold px-2 py-0.5 rounded-lg text-[10px]">{item.district}</span>
+                            <span className="bg-orange-950/80 border border-orange-900/40 text-orange-300 font-bold px-2 py-0.5 rounded-lg text-[10px]">{item.grade} {item.subject}</span>
+                            {item.isOnline && <span className="bg-blue-950/80 border border-blue-900/40 text-blue-300 font-bold px-2 py-0.5 rounded-lg text-[10px]">线上</span>}
+                            {item.isHighPrice && <span className="bg-red-950/80 border border-red-900/40 text-red-300 font-bold px-2 py-0.5 rounded-lg text-[10px]">高薪</span>}
+                          </div>
+
+                          {/* Mobile: Price Display */}
+                          <div className="flex items-center justify-between mb-3 pb-3 border-b border-neutral-800">
+                            <div>
+                              {item.price === 0 ? (
+                                <span className="text-orange-400 font-black text-lg">教员报价</span>
+                              ) : (
+                                <span className="text-orange-400 font-black text-lg">¥{item.price}<span className="text-sm text-neutral-500">/h</span></span>
+                              )}
+                            </div>
+                            {item.priceText && item.price !== 0 && (
+                              <span className="text-neutral-500 text-[10px]">{item.priceText}</span>
+                            )}
+                          </div>
+
+                          {/* Mobile: Description */}
+                          <div className="mb-3">
+                            <p className="text-neutral-300 font-semibold text-sm mb-1.5">{item.studentDesc}</p>
+                            <p className="text-neutral-500 text-xs truncate">📍 {item.address}</p>
+                          </div>
+
+                          {/* Mobile: Action Button */}
+                          <button
+                            onClick={() => {
+                              setTakedownTargetId(item.id);
+                              setShowTakedownConfirm(true);
+                            }}
+                            className="w-full py-2.5 bg-red-600/10 border border-red-500/30 text-red-400 font-bold text-sm rounded-lg hover:bg-red-600/20 hover:border-red-500/50 transition-all cursor-pointer"
+                          >
+                            下架归档
+                          </button>
+                        </div>
+
+                        {/* PC: Row Layout */}
+                        <div
+                          className={`hidden md:flex items-center gap-4 px-5 py-3.5 hover:bg-neutral-850/30 text-xs ${
+                            isChecked ? 'bg-[#ff7823]/5' : ''
+                          }`}
+                        >
+                          {/* Checkbox */}
                           <div 
                             onClick={() => {
                               if (isChecked) {
@@ -1401,61 +1672,47 @@ export default function AdminDashboard({
                                 setSelectedOnlineIds(prev => [...prev, item.id]);
                               }
                             }}
-                            className="cursor-pointer mt-0.5"
+                            className="cursor-pointer"
                           >
                             {isChecked ? (
-                              <CheckSquare className="w-4 h-4 text-orange-500 fill-orange-500/10 shrink-0" />
+                              <CheckSquare className="w-4 h-4 text-orange-500 fill-orange-500/10" />
                             ) : (
-                              <Square className="w-4 h-4 text-neutral-600 shrink-0" />
+                              <Square className="w-4 h-4 text-neutral-600" />
                             )}
                           </div>
 
-                          {/* ID - Mobile card style */}
-                          <div className="flex-1 min-w-0">
-                            <div className="flex flex-wrap items-center gap-2 mb-2">
-                              <span className="font-mono font-bold text-neutral-400 tracking-tight select-all text-[10px] md:text-xs">{item.id}</span>
-                              <span className="bg-neutral-800 text-neutral-300 font-extrabold px-1.5 py-0.5 rounded text-[9px] md:text-[10px]">{item.district}</span>
-                              <span className="bg-orange-950/80 border border-orange-900/40 text-orange-300 font-extrabold px-1.5 py-0.5 rounded text-[9px] md:text-[9.5px]">{item.grade} {item.subject}</span>
-                              <span className="font-mono font-bold text-orange-450 text-[11px] md:text-[12px]">¥{item.price}<span className="text-[9px] text-neutral-500 font-semibold uppercase md:hidden">/h</span></span>
-                            </div>
-                            <p className="text-neutral-300 truncate font-semibold text-[11px]">{item.studentDesc}</p>
-                            <p className="text-[10px] text-neutral-500 truncate mt-0.5">地址：{item.address}</p>
-                          </div>
+                          {/* ID */}
+                          <span className="w-24 font-mono font-bold text-neutral-400 text-xs">{item.id}</span>
 
-                          {/* Mobile: Action button below, PC: Inline */}
-                          <div className="md:hidden w-full">
-                            <button
-                              onClick={() => {
-                                setTakedownTargetId(item.id);
-                                setShowTakedownConfirm(true);
-                              }}
-                              className="w-full px-3 py-2 text-[11px] font-bold text-red-500 border border-red-500/20 hover:border-red-500/40 hover:bg-red-950/20 rounded transition-all cursor-pointer"
-                            >
-                              下架归档
-                            </button>
-                          </div>
-                        </div>
-
-                        {/* PC: Inline details */}
-                        <div className="hidden md:flex items-center gap-4 w-auto">
-                          <span className="w-20 text-center shrink-0">
+                          {/* District */}
+                          <span className="w-20 text-center">
                             <span className="bg-neutral-800 text-neutral-300 font-extrabold px-1.5 py-0.5 rounded text-[10px]">{item.district}</span>
                           </span>
 
-                          <span className="w-24 text-center shrink-0">
+                          {/* Grade & Subject */}
+                          <span className="w-24 text-center">
                             <span className="bg-orange-950/80 border border-orange-900/40 text-orange-300 font-extrabold px-1.5 py-0.5 rounded text-[9.5px]">{item.grade} {item.subject}</span>
                           </span>
 
-                          <span className="w-32 shrink-0 font-mono font-bold text-orange-450 text-[12px]">
-                            ¥{item.price} <span className="text-[9px] text-neutral-500 font-semibold uppercase">/ 小时</span>
+                          {/* Price */}
+                          <span className="w-32 font-mono font-bold text-[12px]">
+                            {item.isNegotiable ? (
+                              <span className="text-emerald-450">教员报价</span>
+                            ) : item.price === 0 ? (
+                              <span className="text-neutral-450">教员报价</span>
+                            ) : (
+                              <span className="text-orange-450">¥{item.price} <span className="text-[9px] text-neutral-500 font-normal">/小时</span></span>
+                            )}
                           </span>
 
-                          <div className="flex-1 min-w-0 pr-6 text-left">
+                          {/* Description */}
+                          <div className="flex-1 min-w-0 pr-6">
                             <p className="text-neutral-300 truncate font-semibold">{item.studentDesc}</p>
                             <p className="text-[10px] text-neutral-500 truncate mt-0.5">地址：{item.address}</p>
                           </div>
 
-                          <div className="w-24 text-center shrink-0">
+                          {/* Action */}
+                          <div className="w-24 text-center">
                             <button
                               onClick={() => {
                                 setTakedownTargetId(item.id);
@@ -1467,7 +1724,7 @@ export default function AdminDashboard({
                             </button>
                           </div>
                         </div>
-                      </div>
+                      </React.Fragment>
                     );
                   })
                 )}
@@ -1482,15 +1739,65 @@ export default function AdminDashboard({
             <div className="bg-[#1a1b1e] border border-neutral-800 rounded-xl p-3 md:p-4 mb-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-2 shrink-0 text-xs">
               <span className="text-neutral-400 font-semibold flex items-center gap-1.5">
                 <Info className="w-4 h-4 text-[#06b6d4]" />
-                <span className="hidden md:inline">由于安全可追溯机制，归档记录属于审计台账数据库，<b>仅支持只读查阅，无法修改或重新发布。</b></span>
-                <span className="md:hidden">归档为审计台账，仅支持只读查阅</span>
+                <span className="hidden md:inline">由于安全可追溯机制，归档记录属于审计台账数据库，<b>仅支持只读查阅和批量删除，无法修改或重新发布。</b></span>
+                <span className="md:hidden">归档为审计台账，支持只读和删除</span>
               </span>
               <span className="font-bold text-neutral-500">归档池数: {archives.length} 条</span>
+            </div>
+
+            {/* Archive Search Filters */}
+            <div className="bg-[#1a1b1e] p-3 md:p-4 rounded-xl border border-neutral-800 flex flex-wrap items-center gap-2 shrink-0 mb-4 text-xs font-semibold">
+              <div className="flex items-center gap-1 text-neutral-400 py-1">
+                <Search className="w-4 h-4 text-neutral-400" />
+                <span className="hidden md:inline">归档台账搜索:</span>
+                <span className="md:hidden">搜索:</span>
+              </div>
+
+              <input
+                type="text"
+                placeholder="关键词..."
+                value={archiveSearchKeyword}
+                onChange={(e) => setArchiveSearchKeyword(e.target.value)}
+                className="bg-neutral-950 border border-neutral-850 p-1.5 px-2 md:px-3 rounded font-mono text-[10.5px] tracking-tight placeholder-neutral-600 focus:outline-none focus:border-neutral-700 w-28 md:w-44"
+              />
+
+              <select
+                value={archiveSearchDistrict}
+                onChange={(e) => setArchiveSearchDistrict(e.target.value)}
+                className="bg-neutral-950 border border-neutral-850 p-1.5 rounded text-[10.5px] text-neutral-300 focus:outline-none focus:border-neutral-700"
+              >
+                <option value="全部">全区</option>
+                {SHANGHAI_DISTRICTS.map(d => (
+                  <option key={d} value={d}>{d}</option>
+                ))}
+              </select>
+
+              <select
+                value={archiveSearchSubject}
+                onChange={(e) => setArchiveSearchSubject(e.target.value)}
+                className="bg-neutral-950 border border-neutral-850 p-1.5 rounded text-[10.5px] text-neutral-300 focus:outline-none focus:border-neutral-700"
+              >
+                <option value="全部">全科</option>
+                {SUBJECTS.map(s => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+
+              {/* Batch Delete Button */}
+              <button
+                onClick={handleArchiveBatchDelete}
+                disabled={selectedArchiveIds.length === 0}
+                className="ml-auto px-3 md:px-4 py-1.5 bg-red-600/20 border border-red-500/30 text-red-400 font-bold text-[10px] md:text-xs rounded-lg hover:bg-red-600/30 hover:border-red-500/50 transition-all disabled:opacity-30 disabled:cursor-not-allowed flex items-center gap-1"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>批量删除 ({selectedArchiveIds.length})</span>
+              </button>
             </div>
 
             <div className="flex-1 min-h-0 bg-neutral-900/30 border border-neutral-800 rounded-xl overflow-hidden flex flex-col">
               {/* Header - PC only */}
               <div className="hidden md:flex bg-neutral-850/50 px-6 py-2.5 border-b border-neutral-800 text-[10px] text-neutral-400 font-bold uppercase items-center">
+                <div className="w-10"></div>
                 <span className="w-24 shrink-0">编号</span>
                 <span className="w-24 shrink-0 text-center">行政区</span>
                 <span className="w-28 shrink-0 text-center">类别科目</span>
@@ -1501,44 +1808,119 @@ export default function AdminDashboard({
 
               {/* Rows scrollbar */}
               <div className="flex-1 min-h-0 overflow-y-auto divide-y divide-neutral-850 font-sans">
-                {archives.length === 0 ? (
-                  <div className="h-full flex flex-col items-center justify-center p-8 text-neutral-500 text-center">
-                    <Database className="w-8 h-8 text-neutral-700 stroke-1 mb-1.5" />
-                    <p className="text-[11px] font-bold">归档历史台账暂空</p>
-                    <p className="text-[10px] text-neutral-600 mt-0.5">当您执行在售订单下架，或者作废草稿时，记录在此累加生效。</p>
-                  </div>
-                ) : (
-                  archives.map(item => (
-                    <div
-                      key={item.id}
-                      className="p-3 md:px-6 md:py-3.5 hover:bg-neutral-850/15 flex flex-col md:flex-row items-start md:items-center text-xs opacity-75 gap-2"
-                    >
-                      {/* Mobile card style */}
-                      <div className="w-full">
-                        <div className="flex flex-wrap items-center gap-2 mb-1.5">
-                          <span className="font-mono font-bold text-neutral-500 select-all text-[10px]">{item.id}</span>
-                          <span className="bg-neutral-800 text-neutral-450 border border-neutral-750 px-1.5 py-0.5 rounded text-[9px] font-bold">
-                            {item.district || '未识别'}
-                          </span>
-                          <span className="bg-neutral-800 text-neutral-400 px-1.5 py-0.5 rounded text-[9px] font-bold">
-                            {item.grade} {item.subject}
-                          </span>
-                          <span className="font-mono font-bold text-neutral-400 text-[11px]">
-                            ¥{item.price}<span className="text-[9px] text-neutral-600">/时</span>
-                          </span>
-                        </div>
-                        <p className="text-neutral-400 font-medium truncate text-[11px]">{item.studentDesc}</p>
-                        <p className="text-[10px] text-neutral-600 truncate leading-none mt-1">地址: {item.address}</p>
-                        <p className="text-[9px] text-neutral-600 font-mono mt-1">{item.publishTime || '2026-06-04 11:00'}</p>
-                      </div>
+                {(() => {
+                  const filteredArchives = archives.filter(item => {
+                    const matchKeyword = !archiveSearchKeyword || 
+                      item.id.toLowerCase().includes(archiveSearchKeyword.toLowerCase()) ||
+                      item.studentDesc.toLowerCase().includes(archiveSearchKeyword.toLowerCase()) ||
+                      item.address.toLowerCase().includes(archiveSearchKeyword.toLowerCase());
+                    const matchDistrict = archiveSearchDistrict === '全部' || item.district === archiveSearchDistrict;
+                    const matchSubject = archiveSearchSubject === '全部' || item.subject === archiveSearchSubject;
+                    return matchKeyword && matchDistrict && matchSubject;
+                  });
+
+                  return filteredArchives.length === 0 ? (
+                    <div className="h-full flex flex-col items-center justify-center p-8 text-neutral-500 text-center">
+                      <Database className="w-8 h-8 text-neutral-700 stroke-1 mb-1.5" />
+                      <p className="text-[11px] font-bold">未找到匹配的归档记录</p>
+                      <p className="text-[10px] text-neutral-600 mt-0.5">请修改搜索条件后再试。</p>
                     </div>
-                  ))
-                )}
+                  ) : (
+                    filteredArchives.map(item => {
+                      const isChecked = selectedArchiveIds.includes(item.id);
+                      return (
+                        <div
+                          key={item.id}
+                          className={`p-3 md:px-6 md:py-3.5 hover:bg-neutral-850/15 flex flex-col md:flex-row items-start md:items-center text-xs gap-2 ${isChecked ? 'bg-[#ff7823]/5' : ''}`}
+                        >
+                          {/* Checkbox for batch delete */}
+                          <div 
+                            onClick={() => {
+                              if (isChecked) {
+                                setSelectedArchiveIds(prev => prev.filter(id => id !== item.id));
+                              } else {
+                                setSelectedArchiveIds(prev => [...prev, item.id]);
+                              }
+                            }}
+                            className="w-6 h-6 shrink-0 cursor-pointer mt-0.5 md:mt-0"
+                          >
+                            {isChecked ? (
+                              <CheckSquare className="w-5 h-5 text-orange-500 fill-orange-500/20" />
+                            ) : (
+                              <Square className="w-5 h-5 text-neutral-600" />
+                            )}
+                          </div>
+                          {/* Mobile card style */}
+                          <div className="w-full">
+                            <div className="flex flex-wrap items-center gap-2 mb-1.5">
+                              <span className="font-mono font-bold text-neutral-500 select-all text-[10px]">{item.id}</span>
+                              <span className="bg-neutral-800 text-neutral-450 border border-neutral-750 px-1.5 py-0.5 rounded text-[9px] font-bold">
+                                {item.district || '未识别'}
+                              </span>
+                              <span className="bg-neutral-800 text-neutral-400 px-1.5 py-0.5 rounded text-[9px] font-bold">
+                                {item.grade} {item.subject}
+                              </span>
+                              <span className="font-mono font-bold text-neutral-400 text-[11px]">
+                                ¥{item.price}<span className="text-[9px] text-neutral-600">/时</span>
+                              </span>
+                            </div>
+                            <p className="text-neutral-400 font-medium truncate text-[11px]">{item.studentDesc}</p>
+                            <p className="text-[10px] text-neutral-600 truncate leading-none mt-1">地址: {item.address}</p>
+                            <p className="text-[9px] text-neutral-600 font-mono mt-1">{item.publishTime || '2026-06-04 11:00'}</p>
+                          </div>
+                        </div>
+                      );
+                    })
+                  );
+                })()}
               </div>
             </div>
           </div>
         )}
       </main>
+
+      {/* User Feedback Notifications Panel */}
+      {feedbacks.length > 0 && (
+        <div className="p-3 md:p-4 bg-[#0f1013] border-t border-neutral-800">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <HelpCircle className="w-4 h-4 text-blue-400" />
+              <span className="text-xs font-bold text-neutral-300">用户反馈 ({feedbacks.length})</span>
+              {feedbacks.some(f => !f.isRead) && (
+                <span className="bg-red-600 text-white text-[9px] font-bold px-1.5 py-0.5 rounded">
+                  {feedbacks.filter(f => !f.isRead).length} 未读
+                </span>
+              )}
+            </div>
+          </div>
+          
+          <div className="space-y-2 max-h-32 overflow-y-auto">
+            {feedbacks.slice().reverse().map(feedback => (
+              <div 
+                key={feedback.id} 
+                className={`p-2 rounded-lg text-xs ${feedback.isRead ? 'bg-neutral-900/50' : 'bg-blue-950/30 border border-blue-800/50'}`}
+                onClick={() => markFeedbackAsRead(feedback.id)}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-neutral-300 break-words">{feedback.content}</p>
+                    <p className="text-[9px] text-neutral-500 mt-1 font-mono">{feedback.submitTime}</p>
+                  </div>
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      deleteFeedback(feedback.id);
+                    }}
+                    className="p-1 hover:bg-neutral-800 rounded transition-colors shrink-0"
+                  >
+                    <X className="w-3 h-3 text-neutral-500" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Background decoration dots constraint - PC only */}
       <div className="hidden md:block absolute bottom-1 right-2 pointer-events-none text-[8.5px] font-mono text-neutral-750 select-none uppercase tracking-widest z-10">

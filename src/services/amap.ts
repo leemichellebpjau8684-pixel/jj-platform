@@ -1,18 +1,29 @@
 import { Coordinate, TravelMode, NavigationResult, RouteStep, Landmark } from '../types';
 import { getDistance } from '../utils';
 
-const ENV = (import.meta as any).env || {};
+function getEnvValue(key: string): string {
+  const value = (import.meta as any).env?.[key];
+  if (typeof value === 'string') return value;
+  return '';
+}
 
 export const AMAP_CONFIG = {
-  key: (ENV.VITE_AMAP_JS_KEY as string) || '',
-  securityJsCode: (ENV.VITE_AMAP_JS_SECURITY_CODE as string) || '',
+  key: getEnvValue('VITE_AMAP_JS_KEY'),
+  securityJsCode: getEnvValue('VITE_AMAP_JS_SECURITY_CODE'),
   city: '上海市',
 };
 
 export const AMAP_WEB_CONFIG = {
-  key: (ENV.VITE_AMAP_WEB_KEY as string) || '',
-  securityCode: (ENV.VITE_AMAP_WEB_SECURITY_CODE as string) || '',
+  key: getEnvValue('VITE_AMAP_WEB_KEY'),
+  securityCode: getEnvValue('VITE_AMAP_WEB_SECURITY_CODE'),
 };
+
+console.debug('AMAP_CONFIG loaded:', {
+  hasKey: !!AMAP_CONFIG.key,
+  hasSecurityCode: !!AMAP_CONFIG.securityJsCode,
+  keyLength: AMAP_CONFIG.key ? AMAP_CONFIG.key.length : 0,
+  envKeys: Object.keys((import.meta as any).env || {}).filter(k => k.includes('AMAP')),
+});
 
 const SHANGHAI_BBOX = { latMin: 30.5, latMax: 31.9, lngMin: 120.8, lngMax: 122.2 };
 export const SHANGHAI_CENTER: Coordinate = { lat: 31.2304, lng: 121.4737 };
@@ -39,6 +50,11 @@ function isInShanghai(c: Coordinate): boolean {
 
 let amapLoadPromise: Promise<void> | null = null;
 
+export function resetAMapLoad(): void {
+  amapLoadPromise = null;
+  (window as any).AMap = null;
+}
+
 export function loadAMapScript(): Promise<void> {
   if (amapLoadPromise) return amapLoadPromise;
 
@@ -48,18 +64,35 @@ export function loadAMapScript(): Promise<void> {
       return;
     }
 
+    const apiKey = AMAP_CONFIG.key || (window as any).AMAP_KEY || '';
+    const securityCode = AMAP_CONFIG.securityJsCode || (window as any).AMAP_SECURITY_CODE || '';
+
+    if (!apiKey) {
+      reject(new Error('高德地图API密钥未配置，请检查环境变量VITE_AMAP_JS_KEY是否正确设置'));
+      return;
+    }
+
     (window as any)._AMapSecurityConfig = {
-      securityJsCode: AMAP_CONFIG.securityJsCode,
+      securityJsCode: securityCode,
     };
 
     const script = document.createElement('script');
     script.type = 'text/javascript';
     script.src =
-      `https://webapi.amap.com/maps?v=2.0&key=${AMAP_CONFIG.key}` +
+      `https://webapi.amap.com/maps?v=2.0&key=${apiKey}` +
       `&plugin=AMap.Geocoder,AMap.DistrictSearch,AMap.PlaceSearch`;
     script.async = true;
-    script.onerror = () => reject(new Error('AMap script load failed'));
-    script.onload = () => resolve();
+    script.onerror = (event: Event | string) => {
+      const errorMsg = typeof event === 'string' ? event : (event as ErrorEvent).message || '加载失败';
+      reject(new Error(`高德地图脚本加载失败: ${errorMsg}，请检查网络连接或API密钥配置`));
+    };
+    script.onload = () => {
+      if ((window as any).AMap) {
+        resolve();
+      } else {
+        reject(new Error('高德地图脚本加载后AMAP对象未定义'));
+      }
+    };
     document.head.appendChild(script);
   });
 

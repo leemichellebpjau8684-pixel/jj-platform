@@ -1623,5 +1623,5 @@ export const SHANGHAI_UNIVERSITIES: Landmark[] = [
   }
 ];
 
-// Seed orders for initial data
+// Seed orders for initial data - empty by default, admin will add orders through backend
 export const SEED_ORDERS: Order[] = [];
