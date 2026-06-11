@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useMemo } from 'react';
 import { Compass, RotateCcw, MapPin, Navigation, Search, X, Phone, Clock, DollarSign, Map, ChevronRight, CheckCircle2 } from 'lucide-react';
 import { Landmark, Order, Coordinate } from '../types';
-import { loadAMapScript, resetAMapLoad, AMAP_CONFIG, forwardGeocode, reverseGeocode } from '../services/amap';
+import { loadAMapScript, AMAP_CONFIG, forwardGeocode, reverseGeocode } from '../services/amap';
 import { getDistance } from '../utils';
 
 interface ShanghaiRadarMapProps {
@@ -13,7 +13,6 @@ interface ShanghaiRadarMapProps {
   onModifyLandmark: () => void;
   activeTab: 'list' | 'map';
   onUpdateLandmark: (landmark: Landmark) => void;
-  onViewOrderDetail: (order: Order) => void;
 }
 
 export default function ShanghaiRadarMap({
@@ -25,7 +24,6 @@ export default function ShanghaiRadarMap({
   onModifyLandmark,
   activeTab,
   onUpdateLandmark,
-  onViewOrderDetail,
 }: ShanghaiRadarMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<any>(null);
@@ -38,18 +36,15 @@ export default function ShanghaiRadarMap({
   const [searchError, setSearchError] = useState<string | null>(null);
   const [showManualLocation, setShowManualLocation] = useState(false);
 
-  // Cache to map student text addresses to true geocoded Lat/Lng to prevent shifting/wrong locations
   const [geocodedCache, setGeocodedCache] = useState<Record<string, { lat: number; lng: number }>>({});
   const geocodedCacheRef = useRef<Record<string, { lat: number; lng: number }>>({});
 
-  // Elements Tracking Refs
   const markersRef = useRef<any[]>([]);
   const landmarkMarkerRef = useRef<any>(null);
   const radiusCircleRef = useRef<any>(null);
   const districtPolygonsRef = useRef<any[]>([]);
   const infoWindowRef = useRef<any>(null);
 
-  // Selected & Hovered trackers
   const [selectedMapOrder, setSelectedMapOrder] = useState<Order | null>(null);
 
   const handleSearchAddress = async () => {
@@ -134,7 +129,6 @@ export default function ShanghaiRadarMap({
     );
   };
 
-  // Geocode any addresses that are not currently cached in the local state
   useEffect(() => {
     if (!isLoaded) return;
 
@@ -161,7 +155,6 @@ export default function ShanghaiRadarMap({
     });
   }, [isLoaded, filteredOrders]);
 
-  // Load AMap API Script on mount
   useEffect(() => {
     loadAMapScript()
       .then(() => {
@@ -173,39 +166,53 @@ export default function ShanghaiRadarMap({
       });
   }, []);
 
-  // Initialize Map Instance
   useEffect(() => {
     if (!isLoaded || !containerRef.current || mapRef.current) return;
+
+    const container = containerRef.current;
+    const rect = container.getBoundingClientRect();
+    
+    console.debug('Map container size:', { width: rect.width, height: rect.height });
+    
+    if (rect.width < 100 || rect.height < 100) {
+      console.warn('Map container too small, scheduling re-check');
+      const timer = setTimeout(() => {
+        window.dispatchEvent(new Event('resize'));
+      }, 300);
+      return () => clearTimeout(timer);
+    }
 
     const AMap = (window as any).AMap;
 
     try {
-      const mapInstance = new AMap.Map(containerRef.current, {
+      const isMobile = /iPhone|iPad|iPod|Android|mobile/i.test(navigator.userAgent.toLowerCase());
+      console.debug('Mobile detection:', { isMobile, userAgent: navigator.userAgent });
+
+      const mapInstance = new AMap.Map(container, {
         center: currentLandmark 
           ? [currentLandmark.coordinate.lng, currentLandmark.coordinate.lat] 
           : [121.4737, 31.2304],
         zoom: 12,
-        viewMode: '3D',
-        pitch: 15,
+        viewMode: isMobile ? '2D' : '3D',
+        pitch: isMobile ? 0 : 15,
         theme: 'dark',
         layers: [
           new AMap.TileLayer.Satellite(),
           new AMap.TileLayer.RoadNet()
-        ]
+        ],
+        resizeEnable: true,
+        animateEnable: !isMobile
       });
 
       mapRef.current = mapInstance;
 
-      // Create a unified InfoWindow reuse instance
       infoWindowRef.current = new AMap.InfoWindow({
         isCustom: true,
         offset: new AMap.Pixel(0, -25),
       });
 
-      // 2. Load Shanghai District boundary micro-glowing contour
       loadShanghaiDistrictOutlines(mapInstance);
 
-      // Force render markers once map is loaded completely
       setTimeout(() => {
         updateMarkersAndCoordinates();
       }, 500);
@@ -216,15 +223,29 @@ export default function ShanghaiRadarMap({
     }
 
     return () => {
-      // Map cleanup
       if (mapRef.current) {
         mapRef.current.destroy();
         mapRef.current = null;
       }
     };
-  }, [isLoaded]);
+  }, [isLoaded, currentLandmark]);
 
-  // Load Shanghai 16 administrative district outline glowing shadows
+  useEffect(() => {
+    const handleResize = () => {
+      if (mapRef.current) {
+        mapRef.current.resize();
+      }
+    };
+
+    window.addEventListener('resize', handleResize);
+    window.addEventListener('orientationchange', handleResize);
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      window.removeEventListener('orientationchange', handleResize);
+    };
+  }, []);
+
   const loadShanghaiDistrictOutlines = (map: any) => {
     const AMap = (window as any).AMap;
     const SHANGHAI_DISTRICTS = [
@@ -247,7 +268,7 @@ export default function ShanghaiRadarMap({
             boundaries.forEach((boundary: any) => {
               const polygon = new AMap.Polygon({
                 path: boundary,
-                strokeColor: '#38bdf8', // Light glowing blue
+                strokeColor: '#38bdf8',
                 strokeOpacity: 0.45,
                 strokeWeight: 1.2,
                 fillColor: '#38bdf8',
@@ -263,18 +284,15 @@ export default function ShanghaiRadarMap({
     });
   };
 
-  // Synchronize Markers & Radius Circle Whenever dependencies render
   const updateMarkersAndCoordinates = () => {
     const map = mapRef.current;
     if (!map) return;
 
     const AMap = (window as any).AMap;
 
-    // 1. Erase stale markers
     markersRef.current.forEach(m => m.setMap(null));
     markersRef.current = [];
 
-    // 2. Draw Tutor Anchor Point (青蓝色定位/地标)
     if (landmarkMarkerRef.current) {
       landmarkMarkerRef.current.setMap(null);
       landmarkMarkerRef.current = null;
@@ -304,7 +322,6 @@ export default function ShanghaiRadarMap({
       });
       landmarkMarkerRef.current.setMap(map);
 
-      // 3. Draw Commute Radiance Circle Limit
       if (radiusCircleRef.current) {
         radiusCircleRef.current.setMap(null);
         radiusCircleRef.current = null;
@@ -312,7 +329,7 @@ export default function ShanghaiRadarMap({
 
       radiusCircleRef.current = new AMap.Circle({
         center: centerPos,
-        radius: maxDistance * 1000, // standard conversion to meters
+        radius: maxDistance * 1000,
         strokeColor: '#00e5ff',
         strokeOpacity: 0.45,
         strokeWeight: 1.5,
@@ -325,7 +342,6 @@ export default function ShanghaiRadarMap({
       radiusCircleRef.current.setMap(map);
     }
 
-    // 4. Place Student Tutor Order Icons (卫星精准落位)
     filteredOrders.forEach((order) => {
       const coords = geocodedCacheRef.current[order.id] || order.coordinate;
       const isSelected = selectedOrderId === order.id;
@@ -412,21 +428,17 @@ export default function ShanghaiRadarMap({
       markersRef.current.push(markerInstance);
     });
 
-    // Auto fit/pan to fit landmark and orders if available
     if (currentLandmark && markersRef.current.length > 0) {
-      // Pan to the tutor landmark as center smoothly
       map.panTo([currentLandmark.coordinate.lng, currentLandmark.coordinate.lat]);
     }
   };
 
-  // Re-run syncing whenever parameters shift
   useEffect(() => {
     if (isLoaded) {
       updateMarkersAndCoordinates();
     }
   }, [isLoaded, currentLandmark, filteredOrders, selectedOrderId, maxDistance]);
 
-  // Adjust center or zoom level through map instance
   const zoomIn = () => {
     if (mapRef.current) {
       mapRef.current.zoomUp();
@@ -451,12 +463,14 @@ export default function ShanghaiRadarMap({
 
   return (
     <div className="flex-1 w-full h-full flex flex-col relative bg-neutral-950 font-sans overflow-hidden">
-      {/* Absolute Header Overlay panel */}
       <div className="absolute top-3 left-3 bg-neutral-950/90 backdrop-blur border border-neutral-800 p-3 rounded-xl z-30 max-w-xs space-y-2 shadow-2xl select-none">
         <h4 className="text-xs font-extrabold text-orange-500 tracking-wide flex items-center gap-1.5">
           <Compass className="w-4 h-4" />
-          <span>请先在列表视图设置好筛选条件和搜索范围（高级筛选）</span>
+          <span>附近家教地图</span>
         </h4>
+        <p className="text-[10px] text-neutral-400 leading-snug">
+          地图显示家教订单位置，点击标记查看详细信息
+        </p>
 
         {showManualLocation ? (
           <div className="space-y-2">
@@ -540,7 +554,6 @@ export default function ShanghaiRadarMap({
         </div>
       </div>
 
-      {/* Floating Speed Radar Zoom controllers */}
       <div className="absolute top-3 right-3 flex flex-col gap-1.5 z-30 select-none">
         <button 
           onClick={zoomIn} 
@@ -565,46 +578,11 @@ export default function ShanghaiRadarMap({
         </button>
       </div>
 
-      {/* Loading & Error Boundary */}
       {loadError ? (
         <div className="flex-1 flex flex-col items-center justify-center p-6 text-center select-none bg-neutral-900 border border-neutral-800">
-          <div className="text-4xl mb-4">🗺️</div>
-          <h4 className="font-bold text-red-500 text-sm mb-2">地图加载失败</h4>
-          <p className="text-xs text-neutral-400 max-w-xs leading-relaxed mb-4">{loadError}</p>
-          <div className="bg-neutral-800/50 rounded-lg p-4 text-left max-w-xs">
-            <p className="text-[10px] text-neutral-500 mb-2">📝 解决方案：</p>
-            <ul className="text-[10px] text-neutral-400 space-y-1.5">
-              <li className="flex items-start gap-1.5">
-                <span className="text-orange-400">•</span>
-                <span>请检查网络连接是否正常</span>
-              </li>
-              <li className="flex items-start gap-1.5">
-                <span className="text-orange-400">•</span>
-                <span>确保已正确配置高德地图API密钥</span>
-              </li>
-              <li className="flex items-start gap-1.5">
-                <span className="text-orange-400">•</span>
-                <span>在 .env 文件中设置 VITE_AMAP_JS_KEY</span>
-              </li>
-            </ul>
-          </div>
-          <button
-            onClick={() => {
-              setIsLoaded(false);
-              setLoadError(null);
-              resetAMapLoad();
-              loadAMapScript()
-                .then(() => {
-                  setIsLoaded(true);
-                })
-                .catch((err) => {
-                  setLoadError(err.message);
-                });
-            }}
-            className="mt-4 px-4 py-2 bg-orange-500 text-white text-xs font-bold rounded-lg hover:bg-orange-600 transition-colors"
-          >
-            重新加载地图
-          </button>
+          <div className="text-3xl mb-2">📡</div>
+          <h4 className="font-bold text-red-500 text-sm">高德底图异常</h4>
+          <p className="text-xs text-neutral-400 mt-2 max-w-xs leading-relaxed">{loadError}</p>
         </div>
       ) : !isLoaded ? (
         <div className="flex-1 flex flex-col items-center justify-center bg-[#111216] text-center select-none">
@@ -621,7 +599,6 @@ export default function ShanghaiRadarMap({
         </div>
       ) : null}
 
-      {/* AMap Container Anchor */}
       <div 
         id="amap-radar-map-container"
         ref={containerRef} 
@@ -629,7 +606,6 @@ export default function ShanghaiRadarMap({
         style={{ display: loadError ? 'none' : 'block' }}
       />
 
-      {/* Static Map Legend Guide */}
       <div className="absolute bottom-3 right-3 bg-neutral-950/90 backdrop-blur-sm border border-neutral-800/80 px-3 py-2 rounded-lg z-30 text-[9.5px] text-neutral-400 flex items-center gap-3.5 select-none font-sans font-medium shadow-2xl">
         <div className="flex items-center gap-1.5">
           <span className="w-2.5 h-2.5 bg-[#EF4444] rounded-full inline-block shadow shadow-red-500/50" />
@@ -645,7 +621,6 @@ export default function ShanghaiRadarMap({
         </div>
       </div>
 
-      {/* Click details tooltip popup block */}
       {selectedMapOrder && (
         <div 
           id="amap-selected-order-tooltip"
@@ -717,14 +692,18 @@ export default function ShanghaiRadarMap({
 
             <div className="flex gap-2">
               <button
-                  onClick={() => {
-                    onViewOrderDetail(selectedMapOrder);
-                  }}
-                  className="flex-1 px-3 py-2 bg-neutral-800 hover:bg-neutral-700 text-white text-[10px] rounded-lg font-bold transition flex items-center justify-center gap-1 cursor-pointer"
-                >
-                  <span>查看需求书</span>
-                  <ChevronRight className="w-3 h-3" />
-                </button>
+                onClick={() => {
+                  const parentNav = document.getElementById('tab-switch-regular-list-btn');
+                  if (parentNav) {
+                    parentNav.click();
+                  }
+                  setSelectedMapOrder(null);
+                }}
+                className="flex-1 px-3 py-2 bg-neutral-800 hover:bg-neutral-700 text-white text-[10px] rounded-lg font-bold transition flex items-center justify-center gap-1 cursor-pointer"
+              >
+                <span>查看需求书</span>
+                <ChevronRight className="w-3 h-3" />
+              </button>
               
               <button
                 onClick={() => {
