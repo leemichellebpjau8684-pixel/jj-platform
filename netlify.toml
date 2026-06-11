@@ -22,8 +22,8 @@
 # 这样密码就不会被打包到前端代码中，也不会暴露给访问者。
 
 [build.environment]
-  # Node.js 版本
-  NODE_VERSION = "18"
+  # Node.js 版本 - 需要 Node >= 20 以支持 @tailwindcss/oxide 和 @vitejs/plugin-react
+  NODE_VERSION = "20.19.0"
 
 # 生产环境变量配置（仅用于说明，实际请在 Netlify 后台配置）
 # [context.production.environment]
