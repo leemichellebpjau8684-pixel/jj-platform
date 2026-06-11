@@ -177,47 +177,21 @@ export default function ShanghaiRadarMap({
   useEffect(() => {
     if (!isLoaded || !containerRef.current || mapRef.current) return;
 
-    const container = containerRef.current;
-    const containerRect = container.getBoundingClientRect();
-    
-    console.debug('AMap container size:', { 
-      width: containerRect.width, 
-      height: containerRect.height 
-    });
-
-    if (containerRect.width < 100 || containerRect.height < 100) {
-      console.warn('AMap container too small, delaying initialization');
-      const timer = setTimeout(() => {
-        if (!mapRef.current) {
-          window.dispatchEvent(new Event('resize'));
-        }
-      }, 500);
-      return () => clearTimeout(timer);
-    }
-
     const AMap = (window as any).AMap;
 
     try {
-      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-      const isSafari = /Safari/i.test(navigator.userAgent) && !/Chrome/i.test(navigator.userAgent);
-      
-      console.debug('AMap initialization:', { isMobile, isSafari });
-      
-      const mapInstance = new AMap.Map(container, {
+      const mapInstance = new AMap.Map(containerRef.current, {
         center: currentLandmark 
           ? [currentLandmark.coordinate.lng, currentLandmark.coordinate.lat] 
           : [121.4737, 31.2304],
         zoom: 12,
-        viewMode: isMobile && isSafari ? '2D' : '3D',
-        pitch: (isMobile && isSafari) ? 0 : 15,
+        viewMode: '3D',
+        pitch: 15,
         theme: 'dark',
         layers: [
           new AMap.TileLayer.Satellite(),
           new AMap.TileLayer.RoadNet()
-        ],
-        resizeEnable: true,
-        animateEnable: !isMobile,
-        showLabel: true
+        ]
       });
 
       mapRef.current = mapInstance;
@@ -476,7 +450,7 @@ export default function ShanghaiRadarMap({
   };
 
   return (
-    <div className="flex-1 w-full h-full min-h-[400px] min-h-[60vh] flex flex-col relative bg-neutral-950 font-sans overflow-hidden" style={{ minHeight: '60vh', height: '100%' }}>
+    <div className="flex-1 w-full h-full flex flex-col relative bg-neutral-950 font-sans overflow-hidden">
       {/* Absolute Header Overlay panel */}
       <div className="absolute top-3 left-3 bg-neutral-950/90 backdrop-blur border border-neutral-800 p-3 rounded-xl z-30 max-w-xs space-y-2 shadow-2xl select-none">
         <h4 className="text-xs font-extrabold text-orange-500 tracking-wide flex items-center gap-1.5">
