@@ -64,10 +64,3 @@ export interface NavigationResult {
   durationMin: number;
   steps: RouteStep[];
 }
-
-export interface Feedback {
-  id: string;
-  content: string;
-  submitTime: string;
-  isRead: boolean;
-}
