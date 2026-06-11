@@ -1120,9 +1120,9 @@ export default function AdminDashboard({
             )}
 
             {/* Desktop Layout */}
-            <div className="flex-1 flex flex-col md:flex-row min-w-0">
+            <div className="flex-1 flex flex-col md:flex-row min-w-0 overflow-hidden">
             {/* Left 60% Panel: WeChat Input & Draft Collection - Full width on mobile */}
-            <div className="w-full md:w-[62%] border-r border-neutral-800 p-3 md:p-5 flex flex-col min-w-0 overflow-y-auto">
+            <div className="w-full md:w-[62%] border-r border-neutral-800 p-3 md:p-5 flex flex-col min-w-0 overflow-y-auto max-h-full">
               
               {/* Raw微信杂乱复制框 */}
               <div className="bg-neutral-900/60 p-4 rounded-xl border border-neutral-850 space-y-3 shrink-0">
@@ -1209,8 +1209,8 @@ export default function AdminDashboard({
                 )}
               </div>
 
-              {/* Draft Cards List */}
-              <div className="flex-1 min-h-0 overflow-y-auto space-y-2.5 pr-1 font-sans">
+              {/* Draft Cards List */
+              <div className="flex-1 min-h-[200px] overflow-y-auto space-y-2.5 pr-1 font-sans">
                 {drafts.length === 0 ? (
                   <div className="h-full flex flex-col items-center justify-center p-8 bg-neutral-900/10 rounded-xl border-2 border-dashed border-neutral-800 text-center">
                     <Database className="w-8 h-8 text-neutral-700 stroke-1 mb-2" />

@@ -39,12 +39,22 @@ function isInShanghai(c: Coordinate): boolean {
 
 let amapLoadPromise: Promise<void> | null = null;
 
+export function resetAMapLoad(): void {
+  amapLoadPromise = null;
+  (window as any).AMap = null;
+}
+
 export function loadAMapScript(): Promise<void> {
   if (amapLoadPromise) return amapLoadPromise;
 
   amapLoadPromise = new Promise<void>((resolve, reject) => {
     if ((window as any).AMap) {
       resolve();
+      return;
+    }
+
+    if (!AMAP_CONFIG.key) {
+      reject(new Error('高德地图API密钥未配置，请在.env文件中设置VITE_AMAP_JS_KEY'));
       return;
     }
 
@@ -58,7 +68,7 @@ export function loadAMapScript(): Promise<void> {
       `https://webapi.amap.com/maps?v=2.0&key=${AMAP_CONFIG.key}` +
       `&plugin=AMap.Geocoder,AMap.DistrictSearch,AMap.PlaceSearch`;
     script.async = true;
-    script.onerror = () => reject(new Error('AMap script load failed'));
+    script.onerror = () => reject(new Error('高德地图脚本加载失败，请检查网络连接或API密钥配置'));
     script.onload = () => resolve();
     document.head.appendChild(script);
   });

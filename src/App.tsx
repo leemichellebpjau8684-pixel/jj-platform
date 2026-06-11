@@ -2088,6 +2088,14 @@ export default function App() {
             onModifyLandmark={() => setIsLandmarkModalOpen(true)}
             activeTab={activeTab}
             onUpdateLandmark={setCurrentLandmark}
+            onViewOrderDetail={(order) => {
+              setSelectedOrderId(order.id);
+              if (window.innerWidth < 768) {
+                setIsMobileDetailModalOpen(true);
+              } else {
+                setActiveTab('list');
+              }
+            }}
           />
         ) : (
           /* VIEW 3: FAVORITES ("我的收藏") */
