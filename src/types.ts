@@ -5,8 +5,11 @@ export interface Coordinate {
 
 export interface Order {
   id: string;
+  orderId?: string; // Original order ID from input (e.g., "2026061609")
+  order_no?: string; // Order number stored in database
   district: string;
   grade: string;
+  gradeDetail?: string; // Detailed grade info (e.g., "二升三")
   subject: string;
   coordinate: Coordinate;
   studentDesc: string;
@@ -15,6 +18,8 @@ export interface Order {
   address: string;
   requirements: string;
   price: number; // hourly rate (for sorting/comparison)
+  priceMin?: number; // Minimum hourly rate
+  priceMax?: number; // Maximum hourly rate
   priceText: string; // Original price display text (e.g., "150元/h", "3000元/月")
   isHighPrice: boolean;
   isOnline: boolean;

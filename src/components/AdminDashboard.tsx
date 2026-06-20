@@ -197,7 +197,7 @@ export default function AdminDashboard({
         }
       }
       
-      // If not found, check for explicit ID patterns
+      // If not found, check for explicit ID patterns (家教编号：xxx#yyy 格式)
       if (!orderId) {
         const explicitIdMatch = block.match(/(?:家教编号|订单编号|编号)[:：\s]*([A-Za-z0-9-#]+)/i);
         if (explicitIdMatch) {
@@ -209,9 +209,30 @@ export default function AdminDashboard({
         }
       }
       
+      // If not found, check for explicit ID patterns (编号：xxx 格式)
+      if (!orderId) {
+        const simpleIdMatch = block.match(/编号[:：]\s*(\d{8,})/);
+        if (simpleIdMatch) {
+          orderId = simpleIdMatch[1];
+          const idLineIndex = lines.findIndex(line => line.includes('编号'));
+          if (idLineIndex >= 0) {
+            idLine = lines[idLineIndex].trim();
+          }
+        }
+      }
+      
+      // If still not found, check first line for ID patterns like "家教编号：2026061609#xxx"
+      if (!orderId && lines.length > 0) {
+        const firstLineIdMatch = lines[0].match(/(家教编号|订单编号|编号)[:：\s]*(\d{8,}[#\-]?\d*)/);
+        if (firstLineIdMatch) {
+          orderId = firstLineIdMatch[2];
+          idLine = lines[0].trim();
+        }
+      }
+      
       // If still not found, check first/last line for ID
       if (!orderId) {
-        const idPattern = /([A-Za-z][A-Za-z0-9-#]*|\d{3,})/;
+        const idPattern = /([A-Za-z][A-Za-z0-9-#]*|\d{8,})/;
         
         if (lines.length > 0) {
           const firstLineMatch = lines[0].match(idPattern);
@@ -272,14 +293,21 @@ export default function AdminDashboard({
         }
         
         // If not found, try to match without "区" suffix (e.g., "长宁" -> "长宁区")
+        // Priority: longer matches first (e.g., "浦东新区" before "浦东")
         if (!area) {
-          for (const d of SHANGHAI_DISTRICTS) {
+          const sortedDistricts = [...SHANGHAI_DISTRICTS].filter(d => d !== '线上').sort((a, b) => b.length - a.length);
+          for (const d of sortedDistricts) {
             const shortName = d.replace('区', '');
             if (shortName && block.includes(shortName)) {
               area = d;
               break;
             }
           }
+        }
+        
+        // Special handling for "浦东" -> "浦东新区"
+        if (!area && (block.includes('浦东') || block.includes('陆家嘴') || block.includes('张江') || block.includes('金桥') || block.includes('外高桥') || block.includes('南汇'))) {
+          area = '浦东新区';
         }
       }
       
@@ -603,7 +631,8 @@ export default function AdminDashboard({
       const isOnlineLoc = block.includes('线上') || addressDetail.includes('线上') || block.includes('网课');
 
       const itemModel: Order = {
-        id: orderId,
+        id: '',
+        orderId: orderId,
         district: area, 
         grade: mathGrade,
         gradeDetail: gradeDetail,
@@ -633,8 +662,27 @@ export default function AdminDashboard({
 
     for (const draft of parsedList) {
       try {
+        let customOrderNo = null;
+        
+        // First try to extract from idLine
         const orderNoMatch = draft.idLine?.match(/(家教编号|订单编号|编号)[:：\s]*([A-Za-z0-9-#]+)/i);
-        const customOrderNo = orderNoMatch ? orderNoMatch[2].split('#')[0] : null;
+        if (orderNoMatch) {
+          customOrderNo = orderNoMatch[2].split('#')[0];
+        }
+        
+        // If not found, try from orderId in draft (already extracted during parsing)
+        if (!customOrderNo && draft.orderId) {
+          customOrderNo = draft.orderId.split('#')[0];
+        }
+        
+        // If still not found, try from rawContent
+        if (!customOrderNo && draft.rawContent) {
+          const rawMatch = draft.rawContent.match(/(家教编号|订单编号|编号)[:：\s]*(\d{8,}[#\-]?\d*)/);
+          if (rawMatch) {
+            customOrderNo = rawMatch[2].split('#')[0];
+          }
+        }
+        
         const createdOrder = await api.createOrder({
           title: draft.studentDesc,
           subject: draft.subject,
@@ -652,6 +700,7 @@ export default function AdminDashboard({
           order_no: customOrderNo
         });
         draft.id = createdOrder.id;
+        draft.order_no = customOrderNo;
       } catch (err) {
         console.error('创建订单失败:', err);
       }
@@ -685,7 +734,8 @@ export default function AdminDashboard({
 
   useEffect(() => {
     if (activeDraft) {
-      setEditId(activeDraft.id);
+      const displayId = activeDraft.order_no || activeDraft.orderId || activeDraft.id;
+      setEditId(displayId);
       setEditDistrict(activeDraft.district);
       setEditAddress(activeDraft.address);
       setEditGrade(activeDraft.grade);
@@ -773,8 +823,10 @@ export default function AdminDashboard({
       const serverOrders = await api.getOrders();
       const transformedOrders = serverOrders.map((order: any) => ({
         id: order.id,
+        order_no: order.order_no,
         district: order.district,
         grade: order.education_stage + (order.grade_detail ? ` ${order.grade_detail}` : ''),
+        gradeDetail: order.grade_detail,
         subject: order.subject,
         coordinate: {
           lat: order.latitude || 31.2304,
@@ -786,6 +838,8 @@ export default function AdminDashboard({
         address: order.address,
         requirements: order.requirements || '男女教员均可',
         price: order.salary_max || order.salary_min || 0,
+        priceMin: order.salary_min,
+        priceMax: order.salary_max,
         priceText: order.salary_min && order.salary_max 
           ? (order.salary_min === order.salary_max 
               ? `${order.salary_min}/h` 
@@ -1409,7 +1463,7 @@ export default function AdminDashboard({
                         {/* Order core indicators */}
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className="text-[10px] text-neutral-400 font-mono tracking-tight font-bold">{item.id}</span>
+                            <span className="text-[10px] text-neutral-400 font-mono tracking-tight font-bold">{item.order_no || item.orderId || item.id}</span>
                             {isDistrictMissing ? (
                               <span className="text-[8.5px] bg-red-950/80 text-red-400 border border-red-900 font-bold px-1 rounded animate-pulse">
                                 ⚠️ 行政区未识别
@@ -1761,7 +1815,7 @@ export default function AdminDashboard({
                               )}
                             </div>
                             <div className="flex-1">
-                              <span className="font-mono font-bold text-neutral-400 text-xs">{item.id}</span>
+                              <span className="font-mono font-bold text-neutral-400 text-xs">{item.order_no || item.orderId || item.id}</span>
                             </div>
                           </div>
 
@@ -1830,7 +1884,7 @@ export default function AdminDashboard({
                           </div>
 
                           {/* ID */}
-                          <span className="w-24 font-mono font-bold text-neutral-400 text-xs">{item.id}</span>
+                          <span className="w-24 font-mono font-bold text-neutral-400 text-xs">{item.order_no || item.orderId || item.id}</span>
 
                           {/* District */}
                           <span className="w-20 text-center">

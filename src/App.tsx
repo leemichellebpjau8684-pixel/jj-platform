@@ -216,11 +216,26 @@ export default function App() {
         setCurrentPath(initPath);
       }
     };
+    
+    const handleOpenOrderDetail = (e: any) => {
+      const { orderId } = e.detail;
+      setSelectedOrderId(orderId);
+      setActiveTab('list');
+      setTimeout(() => {
+        const orderCard = document.getElementById(`order-card-${orderId}`);
+        if (orderCard) {
+          orderCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }, 100);
+    };
+    
     window.addEventListener('popstate', handleLocationChange);
     window.addEventListener('hashchange', handleLocationChange);
+    window.addEventListener('open-order-detail', handleOpenOrderDetail);
     return () => {
       window.removeEventListener('popstate', handleLocationChange);
       window.removeEventListener('hashchange', handleLocationChange);
+      window.removeEventListener('open-order-detail', handleOpenOrderDetail);
     };
   }, []);
 
@@ -1984,16 +1999,16 @@ export default function App() {
                       {/* Price and action */}
                       <div className="flex justify-between items-center pt-3 border-t border-gray-100">
                         <div className="flex items-center gap-3">
-                          <div className="text-orange-600 font-bold text-xl">
+                          <div className="text-orange-600 font-bold text-2xl">
                             {order.isNegotiable ? (
-                              <span className="text-base font-semibold text-emerald-600">教员报价</span>
+                              <span className="text-lg font-semibold text-emerald-600">教员报价</span>
                             ) : order.priceText ? (
-                              <span className="text-lg">{order.priceText}</span>
+                              <span className="text-xl">{order.priceText}</span>
                             ) : (
                               <>
-                                <span className="text-base font-normal">¥</span>
-                                <span className="text-2xl">{order.price}</span>
-                                <span className="text-sm text-gray-500">/h</span>
+                                <span className="text-lg font-normal">¥</span>
+                                <span className="text-3xl">{order.price}</span>
+                                <span className="text-base text-gray-500">/h</span>
                               </>
                             )}
                           </div>

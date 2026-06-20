@@ -397,7 +397,7 @@ export default function ShanghaiRadarMap({
             <div class="flex items-center justify-between gap-2.5 border-b border-neutral-800 pb-2 mb-2">
               <span class="bg-orange-500 text-white font-black text-[10px] px-2 py-0.5 rounded leading-none shrink-0">${order.subject}</span>
               <span class="font-extrabold text-[11px] font-mono ${order.isHighPrice ? 'text-red-400' : 'text-emerald-400'}">
-                ${order.isNegotiable ? '面议' : `¥${order.price}/h`}
+                ${order.isNegotiable ? '面议' : `${order.price}/h`}
               </span>
             </div>
             <div class="text-[10px] text-neutral-400 flex items-center justify-between gap-1 mb-1">
@@ -682,7 +682,7 @@ export default function ShanghaiRadarMap({
               <div className="flex items-center gap-1">
                 <DollarSign className="w-3 h-3 text-orange-500" />
                 <span className={`font-extrabold text-xs ${selectedMapOrder.isHighPrice ? 'text-red-400' : 'text-emerald-400'}`}>
-                  {selectedMapOrder.isNegotiable ? '时薪面议' : `¥${selectedMapOrder.price}/小时`}
+                  {selectedMapOrder.isNegotiable ? '时薪面议' : `${selectedMapOrder.price}/小时`}
                 </span>
               </div>
               {selectedMapOrder.isHighPrice && (
@@ -693,10 +693,8 @@ export default function ShanghaiRadarMap({
             <div className="flex gap-2">
               <button
                 onClick={() => {
-                  const parentNav = document.getElementById('tab-switch-regular-list-btn');
-                  if (parentNav) {
-                    parentNav.click();
-                  }
+                  const event = new CustomEvent('open-order-detail', { detail: { orderId: selectedMapOrder.id } });
+                  window.dispatchEvent(event);
                   setSelectedMapOrder(null);
                 }}
                 className="flex-1 px-3 py-2 bg-neutral-800 hover:bg-neutral-700 text-white text-[10px] rounded-lg font-bold transition flex items-center justify-center gap-1 cursor-pointer"
