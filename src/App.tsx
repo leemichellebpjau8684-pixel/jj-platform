@@ -3159,7 +3159,7 @@ export default function App() {
 
       {/* Feedback Limit Alert */}
       {feedbackLimitAlert && (
-        <div className="fixed top-4 left-1/2 transform -translate-x-1/2 px-4 py-2.5 rounded-xl bg-red-500 text-white shadow-xl z-50 flex items-center gap-2">
+        <div className="fixed top-4 left-1/2 transform -translate-x-1/2 px-4 py-2.5 rounded-xl bg-red-500 text-white shadow-xl z-[60] flex items-center gap-2">
           <AlertTriangle className="w-4 h-4" />
           <span className="text-sm font-bold">每个用户最多只能提交 {MAX_FEEDBACK_COUNT} 次反馈，感谢您的支持！</span>
         </div>
@@ -3167,7 +3167,7 @@ export default function App() {
 
       {/* Feedback Success Alert */}
       {feedbackSuccessAlert && (
-        <div className="fixed top-4 left-1/2 transform -translate-x-1/2 px-4 py-2.5 rounded-xl bg-green-500 text-white shadow-xl z-50 flex items-center gap-2">
+        <div className="fixed top-4 left-1/2 transform -translate-x-1/2 px-4 py-2.5 rounded-xl bg-green-500 text-white shadow-xl z-[60] flex items-center gap-2">
           <Check className="w-4 h-4" />
           <span className="text-sm font-bold">反馈提交成功，感谢您的宝贵建议！</span>
         </div>

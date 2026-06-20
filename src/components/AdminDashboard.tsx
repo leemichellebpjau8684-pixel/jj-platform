@@ -271,10 +271,36 @@ export default function AdminDashboard({
         return;
       }
 
+      // Check for duplicate with existing orders (by order_no first, then by id)
+      const existingOrderByNo = orders.find(o => o.order_no === orderId || o.order_no === orderId.replace(/-/g, ''));
+      const existingDraftByNo = drafts.find(o => o.orderId === orderId || o.orderId === orderId.replace(/-/g, ''));
+      const existingOrderById = orders.find(o => o.id === orderId);
+      const existingDraftById = drafts.find(o => o.id === orderId);
+
+      if (existingOrderByNo) {
+        // Found existing active order with same order number - skip this block
+        const duplicateId = existingOrderByNo.order_no || orderId;
+        console.warn(`家教编号 ${duplicateId} 的订单已在售，跳过此订单`);
+        return; // Skip this block, don't add to parsedList
+      } else if (existingDraftByNo) {
+        // Found existing draft with same order number - skip this block
+        const duplicateId = existingDraftByNo.orderId || orderId;
+        console.warn(`家教编号 ${duplicateId} 的订单已在草稿中，跳过此订单`);
+        return; // Skip this block, don't add to parsedList
+      } else if (existingOrderById) {
+        // Found existing active order with same ID - skip this block
+        console.warn(`订单 ${orderId} 已存在于在售列表，跳过此订单`);
+        return; // Skip this block, don't add to parsedList
+      } else if (existingDraftById) {
+        // Found existing draft with same ID - skip this block
+        console.warn(`订单 ${orderId} 已存在于草稿列表，跳过此订单`);
+        return; // Skip this block, don't add to parsedList
+      }
+
       // Eliminate overlapping id - append suffix if duplicate
       let finalOrderId = orderId;
       let suffix = 1;
-      while (parsedList.some(o => o.id === finalOrderId) || drafts.some(o => o.id === finalOrderId) || orders.some(o => o.id === finalOrderId)) {
+      while (parsedList.some(o => o.id === finalOrderId)) {
         finalOrderId = `${orderId}-${suffix}`;
         suffix++;
       }
@@ -747,11 +773,16 @@ export default function AdminDashboard({
     if (successfullyCreated.length > 0) {
       setDrafts(prev => [...successfullyCreated, ...prev]);
       setSelectedDraftId(successfullyCreated[0]?.id || null);
-      triggerAlert(`成功智能拆单解析 ${successfullyCreated.length} 个草稿订单！`, 'success');
+      const skippedCount = parsedList.length - successfullyCreated.length;
+      if (skippedCount > 0) {
+        triggerAlert(`成功解析 ${successfullyCreated.length} 个订单，${skippedCount} 个订单已在售或草稿中（内容已保留）！`, 'info');
+      } else {
+        triggerAlert(`成功智能拆单解析 ${successfullyCreated.length} 个草稿订单！`, 'success');
+      }
     } else {
       triggerAlert('所有订单创建失败，请检查数据格式', 'error');
     }
-    setRawText('');
+    // 不自动清空文本框，让管理员自己决定是否保留或删除
   };
 
   // Draft editing form state hooks
@@ -847,18 +878,40 @@ export default function AdminDashboard({
 
     const itemsToPublish = drafts.filter(d => selectedDraftIds.includes(d.id));
     
+    // Filter out items with invalid IDs (not UUIDs)
+    const validItems = itemsToPublish.filter(item => {
+      // Check if it's a valid UUID format
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (!uuidRegex.test(item.id)) {
+        console.error(`订单 ${item.id} 没有有效的后端ID，无法上架`);
+        return false;
+      }
+      return true;
+    });
+
+    if (validItems.length === 0) {
+      triggerAlert('所选订单没有有效的后端记录，请重新解析创建订单！', 'error');
+      return;
+    }
+
     const invalidItemsIndex = itemsToPublish.findIndex(item => !item.district);
     if (invalidItemsIndex !== -1) {
       triggerAlert(`订单 ${itemsToPublish[invalidItemsIndex].id} 的行政区和定位仍未分配，请先补充修改！`, 'error');
       return;
     }
 
-    for (const item of itemsToPublish) {
+    let successCount = 0;
+    for (const item of validItems) {
       try {
         await api.publishOrder(item.id);
+        successCount++;
       } catch (err) {
         console.error('发布订单失败:', err);
       }
+    }
+
+    if (successCount < validItems.length) {
+      triggerAlert(`部分订单上架失败 (${successCount}/${validItems.length})，请刷新页面后重试！`, 'error');
     }
 
     try {
