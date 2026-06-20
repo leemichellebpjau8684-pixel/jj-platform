@@ -602,7 +602,7 @@ export default function AdminDashboard({
 
     for (const draft of parsedList) {
       try {
-        await api.createOrder({
+        const createdOrder = await api.createOrder({
           title: draft.studentDesc,
           subject: draft.subject,
           education_stage: draft.grade,
@@ -616,6 +616,7 @@ export default function AdminDashboard({
           raw_content: draft.rawContent,
           status: 'draft'
         });
+        draft.id = createdOrder.id;
       } catch (err) {
         console.error('创建订单失败:', err);
       }
