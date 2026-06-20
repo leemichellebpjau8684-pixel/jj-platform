@@ -183,17 +183,57 @@ export default function AdminDashboard({
     rawBlocks.forEach((block, index) => {
       const lines = block.split('\n').filter(line => line.trim().length > 0);
       
-      // 1. Analyze Order ID - must extract from the order, do NOT auto-generate
+      // 1. Analyze Order ID - 使用新的识别规则
+      // 条件：①含字母 ②有至少3位连续数字 ③带"号"字
+      // 编号：满足至少2个条件的行的全部内容
       let orderId = '';
       let idLine = '';
       
-      // First, check for bracket number patterns like 【762129】 or 🌙【818272】号信息
-      const bracketIdMatch = block.match(/【(\d+)】/);
-      if (bracketIdMatch) {
-        orderId = bracketIdMatch[1];
-        const idLineIndex = lines.findIndex(line => line.includes('【'));
-        if (idLineIndex >= 0) {
-          idLine = lines[idLineIndex].trim();
+      // 检查每一行是否满足条件
+      const checkLineConditions = (line: string): { hasLetter: boolean; hasDigits: boolean; hasHao: boolean; score: number } => {
+        const hasLetter = /[a-zA-Z]/.test(line);
+        const hasDigits = /\d{3,}/.test(line); // 至少3位连续数字
+        const hasHao = /号/.test(line);
+        const score = (hasLetter ? 1 : 0) + (hasDigits ? 1 : 0) + (hasHao ? 1 : 0);
+        return { hasLetter, hasDigits, hasHao, score };
+      };
+      
+      // 找到满足至少2个条件的行
+      for (const line of lines) {
+        const conditions = checkLineConditions(line);
+        if (conditions.score >= 2) {
+          idLine = line.trim();
+          // 从该行提取编号部分（去掉"号"字后面的内容）
+          const haoMatch = line.match(/([A-Za-z0-9-#]+)号/);
+          if (haoMatch) {
+            orderId = haoMatch[1];
+          } else {
+            // 如果没有"号"字，提取字母+数字组合
+            const idMatch = line.match(/[A-Za-z]?\d{3,}[A-Za-z0-9-#]*|[A-Za-z][A-Za-z0-9-#]*\d{3,}/);
+            if (idMatch) {
+              orderId = idMatch[0];
+            } else {
+              // 提取所有字母和数字组合
+              const allMatch = line.match(/[A-Za-z0-9-#]+/);
+              if (allMatch) {
+                orderId = allMatch[0];
+              }
+            }
+          }
+          break;
+        }
+      }
+      
+      // 如果没有找到，尝试传统方式匹配
+      if (!orderId) {
+        // First, check for bracket number patterns like 【762129】 or 🌙【818272】号信息
+        const bracketIdMatch = block.match(/【(\d+)】/);
+        if (bracketIdMatch) {
+          orderId = bracketIdMatch[1];
+          const idLineIndex = lines.findIndex(line => line.includes('【'));
+          if (idLineIndex >= 0) {
+            idLine = lines[idLineIndex].trim();
+          }
         }
       }
       
@@ -205,48 +245,6 @@ export default function AdminDashboard({
           const idLineIndex = lines.findIndex(line => line.match(/(家教编号|订单编号|编号)/));
           if (idLineIndex >= 0) {
             idLine = lines[idLineIndex].trim();
-          }
-        }
-      }
-      
-      // If not found, check for explicit ID patterns (编号：xxx 格式)
-      if (!orderId) {
-        const simpleIdMatch = block.match(/编号[:：]\s*(\d{8,})/);
-        if (simpleIdMatch) {
-          orderId = simpleIdMatch[1];
-          const idLineIndex = lines.findIndex(line => line.includes('编号'));
-          if (idLineIndex >= 0) {
-            idLine = lines[idLineIndex].trim();
-          }
-        }
-      }
-      
-      // If still not found, check first line for ID patterns like "家教编号：2026061609#xxx"
-      if (!orderId && lines.length > 0) {
-        const firstLineIdMatch = lines[0].match(/(家教编号|订单编号|编号)[:：\s]*(\d{8,}[#\-]?\d*)/);
-        if (firstLineIdMatch) {
-          orderId = firstLineIdMatch[2];
-          idLine = lines[0].trim();
-        }
-      }
-      
-      // If still not found, check first/last line for ID
-      if (!orderId) {
-        const idPattern = /([A-Za-z][A-Za-z0-9-#]*|\d{8,})/;
-        
-        if (lines.length > 0) {
-          const firstLineMatch = lines[0].match(idPattern);
-          if (firstLineMatch) {
-            orderId = firstLineMatch[1];
-            idLine = lines[0].trim();
-          }
-        }
-        
-        if (!orderId && lines.length > 0) {
-          const lastLineMatch = lines[lines.length - 1].match(idPattern);
-          if (lastLineMatch) {
-            orderId = lastLineMatch[1];
-            idLine = lines[lines.length - 1].trim();
           }
         }
       }
@@ -314,7 +312,7 @@ export default function AdminDashboard({
       // If not clearly identified, default to empty to highlight the red visual error later!
       
       // 3. Subject & Grade
-      let mathGrade = '其他';
+      let mathGrade = '初中';
       let gradeDetail = '';
       
       // Check for age patterns like "xx岁" where xx < 10
@@ -361,10 +359,12 @@ export default function AdminDashboard({
         } else if (block.includes('初中') || block.includes('初一') || 
                    block.includes('初二') || block.includes('初三') ||
                    block.includes('六年级') || block.includes('七年级') ||
-                   block.includes('八年级') || block.includes('九年级')) {
+                   block.includes('八年级') || block.includes('九年级') ||
+                   block.includes('预初一') || block.includes('预备初一')) {
           mathGrade = '初中';
           const gradeMatch = block.match(/(初一|初二|初三|六|七|八|九)年级/) ||
-                            block.match(/(六升七|七升八|八升九)/);
+                            block.match(/(六升七|七升八|八升九)/) ||
+                            block.match(/(预初一|预备初一)/);
           if (gradeMatch) {
             gradeDetail = gradeMatch[0];
           }
@@ -660,6 +660,8 @@ export default function AdminDashboard({
       parsedList.push(itemModel);
     });
 
+    const successfullyCreated: Order[] = [];
+    
     for (const draft of parsedList) {
       try {
         let customOrderNo = null;
@@ -701,15 +703,39 @@ export default function AdminDashboard({
         });
         draft.id = createdOrder.id;
         draft.order_no = customOrderNo;
-      } catch (err) {
+        successfullyCreated.push(draft);
+      } catch (err: any) {
         console.error('创建订单失败:', err);
+        console.error('发送的数据:', {
+          title: draft.studentDesc,
+          subject: draft.subject,
+          education_stage: draft.grade,
+          grade_detail: draft.gradeDetail,
+          district: draft.district,
+          address: draft.address,
+          salary_min: draft.priceMin || draft.price,
+          salary_max: draft.priceMax || draft.price,
+          teaching_type: draft.isOnline ? '网课' : '上门',
+          requirements: draft.requirements,
+          source: '微信解析',
+          raw_content: draft.rawContent,
+          status: 'draft',
+          order_no: draft.order_no || draft.orderId
+        });
+        console.error('后端响应:', err.response?.data);
+        const errorMsg = err.response?.data?.error || (err.response?.data?.errors?.join ? err.response?.data.errors.join(', ') : err.response?.data?.errors) || err.message || '创建订单失败';
+        triggerAlert(`创建订单失败：${errorMsg}`, 'error');
       }
     }
 
-    setDrafts(prev => [...parsedList, ...prev]);
+    if (successfullyCreated.length > 0) {
+      setDrafts(prev => [...successfullyCreated, ...prev]);
+      setSelectedDraftId(successfullyCreated[0]?.id || null);
+      triggerAlert(`成功智能拆单解析 ${successfullyCreated.length} 个草稿订单！`, 'success');
+    } else {
+      triggerAlert('所有订单创建失败，请检查数据格式', 'error');
+    }
     setRawText('');
-    setSelectedDraftId(parsedList[0]?.id || null);
-    triggerAlert(`成功智能拆单解析 ${parsedList.length} 个草稿订单！`, 'success');
   };
 
   // Draft editing form state hooks
@@ -1999,7 +2025,47 @@ export default function AdminDashboard({
             <div className="flex-1 min-h-0 bg-neutral-900/30 border border-neutral-800 rounded-xl overflow-hidden flex flex-col">
               {/* Header - PC only */}
               <div className="hidden md:flex bg-neutral-850/50 px-6 py-2.5 border-b border-neutral-800 text-[10px] text-neutral-400 font-bold uppercase items-center">
-                <div className="w-10"></div>
+                <div 
+                  className="w-10 cursor-pointer"
+                  onClick={() => {
+                    const filteredArchives = archives.filter(item => {
+                      const matchKeyword = !archiveSearchKeyword || 
+                        (item.order_no || item.orderId || item.id).toLowerCase().includes(archiveSearchKeyword.toLowerCase()) ||
+                        item.studentDesc.toLowerCase().includes(archiveSearchKeyword.toLowerCase()) ||
+                        item.address.toLowerCase().includes(archiveSearchKeyword.toLowerCase());
+                      const matchDistrict = archiveSearchDistrict === '全部' || item.district === archiveSearchDistrict;
+                      const matchSubject = archiveSearchSubject === '全部' || item.subject === archiveSearchSubject;
+                      return matchKeyword && matchDistrict && matchSubject;
+                    });
+                    const allSelected = filteredArchives.every(item => selectedArchiveIds.includes(item.id));
+                    if (allSelected) {
+                      setSelectedArchiveIds(prev => prev.filter(id => !filteredArchives.some(item => item.id === id)));
+                    } else {
+                      setSelectedArchiveIds(prev => [...new Set([...prev, ...filteredArchives.map(item => item.id)])]);
+                    }
+                  }}
+                >
+                  {(() => {
+                    const filteredArchives = archives.filter(item => {
+                      const matchKeyword = !archiveSearchKeyword || 
+                        (item.order_no || item.orderId || item.id).toLowerCase().includes(archiveSearchKeyword.toLowerCase()) ||
+                        item.studentDesc.toLowerCase().includes(archiveSearchKeyword.toLowerCase()) ||
+                        item.address.toLowerCase().includes(archiveSearchKeyword.toLowerCase());
+                      const matchDistrict = archiveSearchDistrict === '全部' || item.district === archiveSearchDistrict;
+                      const matchSubject = archiveSearchSubject === '全部' || item.subject === archiveSearchSubject;
+                      return matchKeyword && matchDistrict && matchSubject;
+                    });
+                    const allSelected = filteredArchives.length > 0 && filteredArchives.every(item => selectedArchiveIds.includes(item.id));
+                    const someSelected = filteredArchives.some(item => selectedArchiveIds.includes(item.id));
+                    return allSelected ? (
+                      <CheckSquare className="w-5 h-5 text-orange-500 fill-orange-500/20" />
+                    ) : someSelected ? (
+                      <div className="w-5 h-5 rounded border-2 border-orange-400 bg-orange-400/30" />
+                    ) : (
+                      <Square className="w-5 h-5 text-neutral-600" />
+                    );
+                  })()}
+                </div>
                 <span className="w-24 shrink-0">编号</span>
                 <span className="w-24 shrink-0 text-center">行政区</span>
                 <span className="w-28 shrink-0 text-center">类别科目</span>
@@ -2030,6 +2096,7 @@ export default function AdminDashboard({
                   ) : (
                     filteredArchives.map(item => {
                       const isChecked = selectedArchiveIds.includes(item.id);
+                      const displayId = item.order_no || item.orderId || item.id;
                       return (
                         <div
                           key={item.id}
@@ -2052,10 +2119,22 @@ export default function AdminDashboard({
                               <Square className="w-5 h-5 text-neutral-600" />
                             )}
                           </div>
+                          {/* PC only: Order ID */}
+                          <span className="hidden md:block w-24 shrink-0 text-[10px] text-neutral-400 font-mono tracking-tight font-bold truncate">{displayId}</span>
+                          {/* PC only: District */}
+                          <span className="hidden md:block w-24 shrink-0 text-center text-[10px] text-neutral-400 truncate">{item.district || '未识别'}</span>
+                          {/* PC only: Subject */}
+                          <span className="hidden md:block w-28 shrink-0 text-center text-[10px] text-neutral-400 truncate">{item.grade} {item.subject}</span>
+                          {/* PC only: Price */}
+                          <span className="hidden md:block w-28 shrink-0 text-[10px] text-neutral-400 font-mono truncate">¥{item.price}/h</span>
+                          {/* PC only: Description */}
+                          <span className="hidden md:flex flex-1 min-w-0 px-4 text-[10px] text-neutral-400 truncate">{item.studentDesc}</span>
+                          {/* PC only: Time */}
+                          <span className="hidden md:block w-36 text-right shrink-0 text-[9px] text-neutral-500 font-mono">{item.publishTime || '2026-06-04 11:00'}</span>
                           {/* Mobile card style */}
                           <div className="w-full">
                             <div className="flex flex-wrap items-center gap-2 mb-1.5">
-                              <span className="font-mono font-bold text-neutral-500 select-all text-[10px]">{item.id}</span>
+                              <span className="font-mono font-bold text-neutral-400 select-all text-[10px] tracking-tight font-bold">{item.order_no || item.orderId || item.id}</span>
                               <span className="bg-neutral-800 text-neutral-450 border border-neutral-750 px-1.5 py-0.5 rounded text-[9px] font-bold">
                                 {item.district || '未识别'}
                               </span>

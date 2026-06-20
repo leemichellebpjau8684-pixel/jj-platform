@@ -3,6 +3,16 @@ const memoryStore = require('./memoryStore');
 let store = memoryStore;
 let storeType = 'memory_store';
 
+// 生成订单编号函数
+function generate_order_no() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  const random = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
+  return `ORD${year}${month}${day}${random}`;
+}
+
 async function initStore() {
   try {
     const { Pool } = require('pg');

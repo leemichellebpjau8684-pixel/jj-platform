@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useMemo } from 'react';
-import { Compass, RotateCcw, MapPin, Navigation, Search, X, Phone, Clock, DollarSign, Map, ChevronRight, CheckCircle2 } from 'lucide-react';
+import { Compass, RotateCcw, MapPin, Navigation, Search, X, Phone, Clock, DollarSign, Map, ChevronRight, CheckCircle2, MessageSquare } from 'lucide-react';
 import { Landmark, Order, Coordinate } from '../types';
 import { loadAMapScript, AMAP_CONFIG, forwardGeocode, reverseGeocode } from '../services/amap';
 import { getDistance } from '../utils';
@@ -710,8 +710,8 @@ export default function ShanghaiRadarMap({
                 }}
                 className="flex-1 px-3 py-2 bg-orange-500 hover:bg-orange-600 text-white text-[10px] rounded-lg font-bold transition flex items-center justify-center gap-1 cursor-pointer shadow shadow-orange-500/10"
               >
-                <Phone className="w-3 h-3" />
-                <span>联系领单</span>
+                <MessageSquare className="w-3 h-3" />
+                <span>点击获取家长微信</span>
               </button>
             </div>
           </div>

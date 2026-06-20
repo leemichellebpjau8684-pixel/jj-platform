@@ -1988,7 +1988,17 @@ export default function App() {
                           </>
                         )}
                         <span className="text-green-600 font-medium">{order.contactTeacher}</span>
-                        <span className="text-green-600">💬</span>
+                        <button 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedOrderId(order.id);
+                            setIsWeChatModalOpen(true);
+                          }}
+                          className="text-green-600 cursor-pointer hover:text-green-700 transition-colors"
+                          title="点击获取家长微信"
+                        >
+                          💬
+                        </button>
                       </div>
                       
                       {/* Raw content display */}
@@ -2066,7 +2076,7 @@ export default function App() {
                       <div>
                         <span className="text-[10px] text-gray-400 font-mono tracking-wider">ORDER SPECIFICATION</span>
                         <h2 className="text-base font-bold text-gray-900 tracking-tight mt-0.5">
-                          家教订单：{selectedOrder.id}
+                          家教订单：{selectedOrder.order_no || selectedOrder.orderId || selectedOrder.id}
                         </h2>
                       </div>
                       <span className="px-2 py-0.5 bg-emerald-50 border border-emerald-200 text-emerald-700 text-[10px] font-bold rounded-full animate-pulse shrink-0">
@@ -2199,8 +2209,8 @@ export default function App() {
                       onClick={() => setIsWeChatModalOpen(true)}
                       className="flex-1 py-2.5 bg-orange-500 text-white rounded font-bold text-xs flex items-center justify-center gap-1.5 hover:bg-orange-600 transition-all cursor-pointer shadow-md shadow-orange-500/10"
                     >
-                      <Phone className="w-3.5 h-3.5" />
-                      <span>添加老师微信领单</span>
+                      <MessageSquare className="w-3.5 h-3.5" />
+                      <span>点击获取家长微信</span>
                     </button>
 
                     <button
@@ -2362,6 +2372,9 @@ export default function App() {
                     <div>
                       <h3 className="text-lg font-bold text-gray-800 mb-1">{selectedOrder.studentDesc}</h3>
                       <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-[10px] text-gray-400 font-mono tracking-tight bg-gray-50 px-2 py-0.5 rounded border border-gray-200">
+                          {selectedOrder.order_no || selectedOrder.orderId || selectedOrder.id}
+                        </span>
                         <span className="bg-gray-100 text-gray-700 text-xs px-2 py-1 rounded">{selectedOrder.district}</span>
                         <span className="bg-orange-100 text-orange-700 text-xs px-2 py-1 rounded">{selectedOrder.grade}</span>
                         <span className="bg-orange-100 text-orange-700 text-xs px-2 py-1 rounded">{selectedOrder.subject}</span>
@@ -2424,8 +2437,8 @@ export default function App() {
                       onClick={() => setIsWeChatModalOpen(true)}
                       className="flex-1 py-3 bg-orange-500 text-white rounded-lg font-bold text-sm flex items-center justify-center gap-2 hover:bg-orange-600 transition-colors shadow-md"
                     >
-                      <Phone className="w-4 h-4" />
-                      联系领单
+                      <MessageSquare className="w-4 h-4" />
+                      点击获取家长微信
                     </button>
                   </div>
                 </div>
@@ -2472,7 +2485,7 @@ export default function App() {
                         onClick={() => setIsWeChatModalOpen(true)}
                         className="flex-1 py-3 bg-orange-500 text-white rounded-lg font-bold text-sm"
                       >
-                        联系领单
+                        点击获取家长微信
                       </button>
                       <button
                         onClick={() => toggleFavorite(selectedOrder)}
@@ -2906,7 +2919,7 @@ export default function App() {
 
               {/* Important application note */}
               <p className="text-[10px] text-neutral-500 mt-3 leading-relaxed bg-orange-50/50 p-2 text-left rounded border border-orange-100">
-                🔒 接单提示：平台保障教员上门安全及合法时薪结算渠道。扫码加好友时，备注您的<b>【姓名+在读学校+拟接单编号 {selectedOrder.id}】</b>，老师最快于12小时内完成资格初筛对接！
+                🔒 接单提示：添加小德，备注来意，然后直接发送您看上的家教单完整信息+个人简历+报价+可上课时间即可！
               </p>
 
             </div>
@@ -3046,7 +3059,7 @@ export default function App() {
               }}
               className="flex-1 py-2.5 bg-orange-500 text-white rounded font-bold text-xs flex items-center justify-center gap-1.5"
             >
-              <Phone className="w-3.5 h-3.5" />
+              <MessageSquare className="w-3.5 h-3.5" />
               <span>添加微信领单</span>
             </button>
           </div>
