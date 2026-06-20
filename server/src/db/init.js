@@ -13,7 +13,25 @@ async function initDatabase() {
     console.log('🔄 开始初始化数据库...');
 
     // 读取 schema.sql
-    const schemaPath = path.join(__dirname, '../../database/schema.sql');
+    const possiblePaths = [
+      path.join(__dirname, '../../../database/schema.sql'),
+      path.join(__dirname, '../../database/schema.sql'),
+      path.join(process.cwd(), 'database/schema.sql'),
+      path.join(process.cwd(), '../database/schema.sql'),
+    ];
+
+    let schema = null;
+    for (const schemaPath of possiblePaths) {
+      try {
+        schema = fs.readFileSync(schemaPath, 'utf8');
+        console.log(`✅ 从 ${schemaPath} 读取 schema`);
+        break;
+      } catch (err) {}
+    }
+
+    if (!schema) {
+      throw new Error('schema.sql not found');
+    }
     const schema = fs.readFileSync(schemaPath, 'utf8');
 
     // 执行 schema
