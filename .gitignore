@@ -1,0 +1,50 @@
+# 依赖目录
+node_modules/
+
+# 构建输出
+build/
+dist/
+out/
+
+# 测试覆盖率
+coverage/
+
+# 系统文件
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# 日志文件
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# 环境变量文件（敏感信息不上传）
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+# 但保留模板文件
+!.env.example
+
+# 编辑器缓存目录
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+
+# 临时文件
+*.tmp
+*.temp
+.cache/
+
+# TypeScript 缓存
+*.tsbuildinfo
+
+# 打包分析
+stats.html

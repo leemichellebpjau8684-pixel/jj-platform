@@ -1,0 +1,10 @@
+[railway]
+  plugin = "nodejs"
+
+[build]
+  builder = "NIXPACKS"
+
+[deploy]
+  startCommand = "cd server && npm install && node src/db/init.js && node src/server.js"
+  restartPolicyType = "ON_FAILURE"
+  restartPolicyCount = 3

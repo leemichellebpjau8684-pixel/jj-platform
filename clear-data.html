@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>清理家教平台数据</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      max-width: 500px;
+      margin: 40px auto;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+    .container {
+      background: white;
+      padding: 30px;
+      border-radius: 12px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.1);
+    }
+    h1 {
+      color: #333;
+      font-size: 20px;
+      margin-bottom: 20px;
+    }
+    p {
+      color: #666;
+      font-size: 14px;
+      line-height: 1.6;
+    }
+    .btn {
+      display: inline-block;
+      padding: 12px 24px;
+      margin: 10px 5px;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-danger {
+      background: #ff4757;
+      color: white;
+    }
+    .btn-danger:hover {
+      background: #ff3838;
+    }
+    .btn-secondary {
+      background: #f0f0f0;
+      color: #333;
+    }
+    .btn-secondary:hover {
+      background: #e0e0e0;
+    }
+    .status {
+      margin-top: 20px;
+      padding: 15px;
+      border-radius: 8px;
+      font-size: 13px;
+    }
+    .status.success {
+      background: #d4edda;
+      color: #155724;
+    }
+    .status.error {
+      background: #f8d7da;
+      color: #721c24;
+    }
+    ul {
+      margin: 10px 0;
+      padding-left: 20px;
+      color: #555;
+      font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🗑️ 清理家教平台数据</h1>
+    <p>此页面用于清除浏览器本地存储中的家教平台数据，包括：</p>
+    <ul>
+      <li>在售订单 (jiajiao_online_json)</li>
+      <li>草稿订单 (jiajiao_draft_json)</li>
+      <li>归档订单 (jiajiao_archive_json)</li>
+      <li>统计数据 (jiajiao_stat_json)</li>
+      <li>当前地标 (jiajiao_current_landmark)</li>
+      <li>管理员登录状态 (jiajiao_admin_verified)</li>
+    </ul>
+    <p><strong>警告：</strong>此操作将清除所有已保存的订单数据，请确保已备份重要信息。</p>
+    
+    <button class="btn btn-danger" onclick="clearAllData()">
+      确认清除所有数据
+    </button>
+    <button class="btn btn-secondary" onclick="window.location.href='/'">
+      返回首页
+    </button>
+    
+    <div id="status" class="status" style="display: none;"></div>
+  </div>
+
+  <script>
+    function clearAllData() {
+      const keys = [
+        'jiajiao_online_json',
+        'jiajiao_draft_json', 
+        'jiajiao_archive_json',
+        'jiajiao_stat_json',
+        'jiajiao_current_landmark',
+        'jiajiao_admin_verified'
+      ];
+      
+      let removedCount = 0;
+      keys.forEach(key => {
+        if (localStorage.getItem(key)) {
+          localStorage.removeItem(key);
+          removedCount++;
+        }
+      });
+      
+      const status = document.getElementById('status');
+      status.className = 'status success';
+      status.textContent = `✅ 已成功清除 ${removedCount} 个数据项！页面将在3秒后自动跳转...`;
+      status.style.display = 'block';
+      
+      setTimeout(() => {
+        window.location.href = '/';
+      }, 3000);
+    }
+  </script>
+</body>
+</html>
