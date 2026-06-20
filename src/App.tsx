@@ -16,6 +16,17 @@ import ShanghaiRadarMap from './components/ShanghaiRadarMap';
 import AdminDashboard from './components/AdminDashboard';
 import { api } from './services/api';
 
+// 从raw_content中提取订单编号
+function extractOrderNo(rawContent: string | undefined): string {
+  if (!rawContent) return '';
+  // 匹配 JJ + 8位数字 或 纯数字编号
+  const match = rawContent.match(/(?:家教编号[：:]\s*)?([A-Z]{2}\d{8}|\d{8,})/i);
+  if (match) {
+    return match[1].toUpperCase();
+  }
+  return '';
+}
+
 export default function App() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
@@ -82,7 +93,7 @@ export default function App() {
             contactTeacher: 'Ken06103',
             publishTime: order.published_at || order.created_at || new Date().toISOString(),
             rawContent: order.raw_content || '',
-            idLine: `家教编号：${order.order_no}`
+            idLine: `家教编号：${order.order_no || extractOrderNo(order.raw_content)}`
           };
         });
         setOrders(transformedOrders);
@@ -2269,21 +2280,21 @@ export default function App() {
               )}
 
               {/* Pagination Controls */}
-              {activeTab === 'list' && totalListPages > 1 && (
+              {activeTab === 'list' && (
                 <div className="flex items-center justify-center gap-2 py-3 border-t border-gray-200 bg-white shrink-0">
                   <button
                     onClick={() => setListPage(p => Math.max(1, p - 1))}
-                    disabled={listPage === 1}
+                    disabled={listPage === 1 || totalListPages <= 1}
                     className="px-3 py-1.5 text-sm font-bold text-gray-600 hover:text-orange-500 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                   >
                     上一页
                   </button>
                   <span className="px-3 py-1.5 text-sm font-bold text-orange-500 bg-orange-50 rounded">
-                    {listPage} / {totalListPages}
+                    {listPage} / {totalListPages || 1}
                   </span>
                   <button
-                    onClick={() => setListPage(p => Math.min(totalListPages, p + 1))}
-                    disabled={listPage === totalListPages}
+                    onClick={() => setListPage(p => Math.min(totalListPages || 1, p + 1))}
+                    disabled={listPage >= (totalListPages || 1)}
                     className="px-3 py-1.5 text-sm font-bold text-gray-600 hover:text-orange-500 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                   >
                     下一页
@@ -2511,21 +2522,21 @@ export default function App() {
               )}
               
               {/* Favorites Pagination Controls */}
-              {activeTab === 'favorites' && totalFavoritesPages > 1 && (
+              {activeTab === 'favorites' && (
                 <div className="flex items-center justify-center gap-2 py-3 border-t border-gray-200 bg-white shrink-0">
                   <button
                     onClick={() => setFavoritesPage(p => Math.max(1, p - 1))}
-                    disabled={favoritesPage === 1}
+                    disabled={favoritesPage === 1 || totalFavoritesPages <= 1}
                     className="px-3 py-1.5 text-sm font-bold text-gray-600 hover:text-orange-500 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                   >
                     上一页
                   </button>
                   <span className="px-3 py-1.5 text-sm font-bold text-orange-500 bg-orange-50 rounded">
-                    {favoritesPage} / {totalFavoritesPages}
+                    {favoritesPage} / {totalFavoritesPages || 1}
                   </span>
                   <button
-                    onClick={() => setFavoritesPage(p => Math.min(totalFavoritesPages, p + 1))}
-                    disabled={favoritesPage === totalFavoritesPages}
+                    onClick={() => setFavoritesPage(p => Math.min(totalFavoritesPages || 1, p + 1))}
+                    disabled={favoritesPage >= (totalFavoritesPages || 1)}
                     className="px-3 py-1.5 text-sm font-bold text-gray-600 hover:text-orange-500 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                   >
                     下一页

@@ -9,6 +9,16 @@ import { Order, Coordinate } from '../types';
 import { SHANGHAI_DISTRICTS, SUBJECTS, GRADES } from '../data';
 import { api } from '../services/api';
 
+// 从raw_content中提取订单编号
+function extractOrderNo(rawContent: string | undefined): string {
+  if (!rawContent) return '';
+  const match = rawContent.match(/(?:家教编号[：:]\s*)?([A-Z]{2}\d{8}|\d{8,})/i);
+  if (match) {
+    return match[1].toUpperCase();
+  }
+  return '';
+}
+
 //上海各区中心坐标字典用于新解析订单自动定位映射
 export const DISTRICT_CENTERS: Record<string, Coordinate> = {
   '黄浦区': { lat: 31.2284, lng: 121.4821 },
@@ -1006,19 +1016,24 @@ export default function AdminDashboard({
   const handleArchiveReactivateConfirmAction = async () => {
     const itemsToReactivate = archives.filter(a => selectedArchiveIds.includes(a.id));
     let successCount = 0;
+    const successIds: string[] = [];
     
     for (const item of itemsToReactivate) {
       try {
         const reactivatedOrder = await api.reactivateOrder(item.id);
         if (reactivatedOrder) {
           successCount++;
+          successIds.push(item.id);
         }
       } catch (err) {
         console.error(`重新上架订单 ${item.id} 失败:`, err);
       }
     }
     
-    setArchives(prev => prev.filter(a => !selectedArchiveIds.includes(a.id)));
+    // 只移除成功重新上架的订单
+    if (successIds.length > 0) {
+      setArchives(prev => prev.filter(a => !successIds.includes(a.id)));
+    }
     setSelectedArchiveIds([]);
     setShowArchiveReactivateConfirm(false);
     
@@ -1052,7 +1067,7 @@ export default function AdminDashboard({
   const filteredArchives = useMemo(() => {
     return archives.filter(item => {
       const matchKeyword = !archiveSearchKeyword ||
-        (item.order_no || item.orderId || item.id).toLowerCase().includes(archiveSearchKeyword.toLowerCase()) ||
+        (item.order_no || extractOrderNo(item.raw_content) || item.orderId || item.id).toLowerCase().includes(archiveSearchKeyword.toLowerCase()) ||
         item.studentDesc.toLowerCase().includes(archiveSearchKeyword.toLowerCase()) ||
         item.address.toLowerCase().includes(archiveSearchKeyword.toLowerCase());
       const matchDistrict = archiveSearchDistrict === '全部' || item.district === archiveSearchDistrict;
@@ -1593,7 +1608,7 @@ export default function AdminDashboard({
                         {/* Order core indicators */}
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className="text-[10px] text-neutral-400 font-mono tracking-tight font-bold">{item.order_no || item.orderId || item.id}</span>
+                            <span className="text-[10px] text-neutral-400 font-mono tracking-tight font-bold">{item.order_no || extractOrderNo(item.raw_content) || item.orderId || item.id}</span>
                             {isDistrictMissing ? (
                               <span className="text-[8.5px] bg-red-950/80 text-red-400 border border-red-900 font-bold px-1 rounded animate-pulse">
                                 ⚠️ 行政区未识别
@@ -1945,7 +1960,7 @@ export default function AdminDashboard({
                               )}
                             </div>
                             <div className="flex-1">
-                              <span className="font-mono font-bold text-neutral-400 text-xs">{item.order_no || item.orderId || item.id}</span>
+                              <span className="font-mono font-bold text-neutral-400 text-xs">{item.order_no || extractOrderNo(item.raw_content) || item.orderId || item.id}</span>
                             </div>
                           </div>
 
@@ -2014,7 +2029,7 @@ export default function AdminDashboard({
                           </div>
 
                           {/* ID */}
-                          <span className="w-24 font-mono font-bold text-neutral-400 text-xs">{item.order_no || item.orderId || item.id}</span>
+                          <span className="w-24 font-mono font-bold text-neutral-400 text-xs">{item.order_no || extractOrderNo(item.raw_content) || item.orderId || item.id}</span>
 
                           {/* District */}
                           <span className="w-20 text-center">
@@ -2215,7 +2230,7 @@ export default function AdminDashboard({
                   ) : (
                     paginatedArchives.map(item => {
                       const isChecked = selectedArchiveIds.includes(item.id);
-                      const displayId = item.order_no || item.orderId || item.id;
+                      const displayId = item.order_no || extractOrderNo(item.raw_content) || item.orderId || item.id;
                       return (
                         <div
                           key={item.id}
@@ -2253,7 +2268,7 @@ export default function AdminDashboard({
                           {/* Mobile card style */}
                           <div className="w-full">
                             <div className="flex flex-wrap items-center gap-2 mb-1.5">
-                              <span className="font-mono font-bold text-neutral-400 select-all text-[10px] tracking-tight font-bold">{item.order_no || item.orderId || item.id}</span>
+                              <span className="font-mono font-bold text-neutral-400 select-all text-[10px] tracking-tight font-bold">{item.order_no || extractOrderNo(item.raw_content) || item.orderId || item.id}</span>
                               <span className="bg-neutral-800 text-neutral-450 border border-neutral-750 px-1.5 py-0.5 rounded text-[9px] font-bold">
                                 {item.district || '未识别'}
                               </span>
