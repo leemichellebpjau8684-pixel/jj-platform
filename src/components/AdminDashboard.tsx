@@ -287,19 +287,25 @@ export default function AdminDashboard({
       
       // 3. Subject & Grade
       let mathGrade = '其他';
+      let gradeDetail = '';
       
       // Check for age patterns like "xx岁" where xx < 10
       const ageMatch = block.match(/(\d{1,2})岁/);
       if (ageMatch) {
         const age = parseInt(ageMatch[1], 10);
         if (age > 0 && age < 10) {
-          mathGrade = '幼儿启蒙';
+          mathGrade = '幼儿';
+          gradeDetail = `${age}岁`;
         }
       }
       
       // Check for kindergarten/early education keywords
       if (mathGrade === '其他' && (block.includes('幼') || block.includes('启蒙') || block.includes('幼儿园') || block.includes('学前'))) {
-        mathGrade = '幼儿启蒙';
+        mathGrade = '幼儿';
+        const kindergartenMatch = block.match(/(小班|中班|大班|学前班)/);
+        if (kindergartenMatch) {
+          gradeDetail = kindergartenMatch[1];
+        }
       }
       
       // Check for adult education
@@ -307,7 +313,7 @@ export default function AdminDashboard({
         mathGrade = '成人';
       }
       
-      // Check for grade level keywords
+      // Check for grade level keywords with detailed extraction
       if (mathGrade === '其他') {
         if (block.includes('小学') || 
             block.includes('一年级') || block.includes('二年级') || 
@@ -318,15 +324,31 @@ export default function AdminDashboard({
             block.match(/\d年级/)?.[0]?.startsWith('4') ||
             block.match(/\d年级/)?.[0]?.startsWith('5')) {
           mathGrade = '小学';
+          const gradeMatch = block.match(/(一|二|三|四|五|六)年级/) || 
+                            block.match(/(\d)年级/) ||
+                            block.match(/(二升三|三升四|四升五|五升六)/);
+          if (gradeMatch) {
+            gradeDetail = gradeMatch[0];
+          }
         } else if (block.includes('初中') || block.includes('初一') || 
                    block.includes('初二') || block.includes('初三') ||
                    block.includes('六年级') || block.includes('七年级') ||
                    block.includes('八年级') || block.includes('九年级')) {
           mathGrade = '初中';
+          const gradeMatch = block.match(/(初一|初二|初三|六|七|八|九)年级/) ||
+                            block.match(/(六升七|七升八|八升九)/);
+          if (gradeMatch) {
+            gradeDetail = gradeMatch[0];
+          }
         } else if (block.includes('高中') || block.includes('高一') || 
                    block.includes('高二') || block.includes('高三') ||
                    block.includes('高考')) {
           mathGrade = '高中';
+          const gradeMatch = block.match(/(高一|高二|高三)/) ||
+                            block.match(/(高一升高二|高二升高三)/);
+          if (gradeMatch) {
+            gradeDetail = gradeMatch[0];
+          }
         }
       }
 
@@ -422,6 +444,8 @@ export default function AdminDashboard({
 
       // 4. Price / Hour Rate (Salary)
       let priceRate = 0;
+      let priceMin = 0;
+      let priceMax = 0;
       let priceTextDisplay = '';
       
       // Only extract price from lines containing price-related keywords to avoid matching order IDs
@@ -433,17 +457,18 @@ export default function AdminDashboard({
       );
       const priceText = priceLines.join(' ');
       
-      // Pattern to capture salary range with unit (e.g., "5000-7000/月", "100-130/h")
-      const rangePattern = /(\d{2,5})-(\d{2,5})\s*\/\s*(h|月|天|小时)/i;
+      // Pattern to capture salary range with unit (e.g., "5000-7000/月", "100-130/h", "100-120元/小时")
+      const rangePattern = /(\d{2,5})-(\d{2,5})\s*元?\s*\/?\s*(h|月|天|小时)?/i;
       const rangeMatch = priceText.match(rangePattern);
       
       if (rangeMatch) {
         // Extract range values
         const minVal = parseInt(rangeMatch[1], 10);
         const maxVal = parseInt(rangeMatch[2], 10);
-        const unit = rangeMatch[3];
-        priceTextDisplay = `${minVal}-${maxVal}/${unit}`;
-        // Use max value for sorting
+        const unit = rangeMatch[3] || '小时';
+        priceMin = minVal;
+        priceMax = maxVal;
+        priceTextDisplay = `${minVal}-${maxVal}/h`;
         priceRate = maxVal;
         // Convert to hourly equivalent for sorting
         if (unit === '月') {
@@ -476,7 +501,10 @@ export default function AdminDashboard({
         for (const pattern of singlePatterns) {
           const match = priceText.match(pattern);
           if (match) {
-            priceRate = parseInt(match[1], 10);
+            const rawPrice = parseInt(match[1], 10);
+            priceRate = rawPrice;
+            priceMin = rawPrice;
+            priceMax = rawPrice;
             // Extract the full match for display
             const fullMatchStr = match[0];
             // Clean up and format the display text
@@ -578,6 +606,7 @@ export default function AdminDashboard({
         id: orderId,
         district: area, 
         grade: mathGrade,
+        gradeDetail: gradeDetail,
         subject: subName,
         coordinate: coord,
         studentDesc: studentDesc || '学员学习细节待沟通',
@@ -586,6 +615,8 @@ export default function AdminDashboard({
         address: addressDetail,
         requirements: teachReq,
         price: priceRate,
+        priceMin: priceMin,
+        priceMax: priceMax,
         priceText: priceTextDisplay,
         isHighPrice: isHigh,
         isOnline: isOnlineLoc,
@@ -602,21 +633,24 @@ export default function AdminDashboard({
 
     for (const draft of parsedList) {
       try {
+        const orderNoMatch = draft.idLine?.match(/(家教编号|订单编号|编号)[:：\s]*([A-Za-z0-9-#]+)/i);
+        const customOrderNo = orderNoMatch ? orderNoMatch[2].split('#')[0] : null;
         const createdOrder = await api.createOrder({
           title: draft.studentDesc,
           subject: draft.subject,
           education_stage: draft.grade,
+          grade_detail: draft.gradeDetail,
           district: draft.district,
           address: draft.address,
-          salary_min: draft.price,
-          salary_max: draft.price,
+          salary_min: draft.priceMin || draft.price,
+          salary_max: draft.priceMax || draft.price,
           teaching_type: draft.isOnline ? '网课' : '上门',
           requirements: draft.requirements,
           source: '微信解析',
           raw_content: draft.rawContent,
-          status: 'draft'
+          status: 'draft',
+          order_no: customOrderNo
         });
-        // 用服务器返回的真实 UUID 更新本地 draft 的 id
         draft.id = createdOrder.id;
       } catch (err) {
         console.error('创建订单失败:', err);
@@ -735,7 +769,43 @@ export default function AdminDashboard({
       }
     }
 
-    setOrders(prev => [...itemsToPublish, ...prev]);
+    try {
+      const serverOrders = await api.getOrders();
+      const transformedOrders = serverOrders.map((order: any) => ({
+        id: order.id,
+        district: order.district,
+        grade: order.education_stage + (order.grade_detail ? ` ${order.grade_detail}` : ''),
+        subject: order.subject,
+        coordinate: {
+          lat: order.latitude || 31.2304,
+          lng: order.longitude || 121.4737
+        },
+        studentDesc: order.title || '学员信息待完善',
+        studentDetail: order.raw_content || order.requirements || '暂无详细信息',
+        frequency: '每周2次，每次2小时',
+        address: order.address,
+        requirements: order.requirements || '男女教员均可',
+        price: order.salary_max || order.salary_min || 0,
+        priceText: order.salary_min && order.salary_max 
+          ? (order.salary_min === order.salary_max 
+              ? `${order.salary_min}/h` 
+              : `${order.salary_min}-${order.salary_max}/h`) 
+          : (order.salary_min ? `${order.salary_min}/h` : '面议'),
+        isHighPrice: (order.salary_max || order.salary_min || 0) >= 120,
+        isOnline: order.teaching_type === '网课',
+        isCollegeStudent: true,
+        isNegotiable: !order.salary_min && !order.salary_max,
+        contactTeacher: 'Ken06103',
+        publishTime: order.published_at || order.created_at || new Date().toISOString(),
+        rawContent: order.raw_content || '',
+        idLine: `家教编号：${order.order_no}`
+      }));
+      setOrders(transformedOrders);
+    } catch (err) {
+      console.error('重新加载订单失败:', err);
+      setOrders(prev => [...itemsToPublish, ...prev]);
+    }
+
     setDrafts(prev => prev.filter(d => !selectedDraftIds.includes(d.id)));
 
     const now = new Date();

@@ -27,33 +27,64 @@ export default function App() {
       setError(null);
       try {
         const apiOrders = await api.getOrders();
-        const transformedOrders: Order[] = apiOrders.map((order: any) => ({
-          id: order.id,
-          district: order.district,
-          grade: order.education_stage,
-          subject: order.subject,
-          coordinate: {
-            lat: order.latitude || 31.2304,
-            lng: order.longitude || 121.4737
-          },
-          studentDesc: order.requirements || order.title || '学员信息待完善',
-          studentDetail: order.raw_content || order.requirements || '暂无详细信息',
-          frequency: '每周2次，每次2小时',
-          address: order.address,
-          requirements: order.requirements || '男女教员均可',
-          price: order.salary_max || order.salary_min || 0,
-          priceText: order.salary_min && order.salary_max 
-            ? `${order.salary_min}-${order.salary_max}/h` 
-            : (order.salary_min ? `${order.salary_min}/h` : '面议'),
-          isHighPrice: (order.salary_max || order.salary_min || 0) >= 120,
-          isOnline: order.teaching_type === '网课',
-          isCollegeStudent: true,
-          isNegotiable: !order.salary_min && !order.salary_max,
-          contactTeacher: 'Ken06103',
-          publishTime: order.published_at || order.created_at || new Date().toISOString(),
-          rawContent: order.raw_content || '',
-          idLine: `家教编号：${order.order_no}`
-        }));
+        
+        // 上海各区中心坐标
+        const DISTRICT_CENTERS: Record<string, { lat: number; lng: number }> = {
+          '黄浦区': { lat: 31.2284, lng: 121.4821 },
+          '徐汇区': { lat: 31.1895, lng: 121.4325 },
+          '长宁区': { lat: 31.2155, lng: 121.4245 },
+          '静安区': { lat: 31.2484, lng: 121.4421 },
+          '普陀区': { lat: 31.2572, lng: 121.3972 },
+          '虹口区': { lat: 31.2721, lng: 121.4912 },
+          '杨浦区': { lat: 31.2942, lng: 121.5236 },
+          '闵行区': { lat: 31.0858, lng: 121.4007 },
+          '宝山区': { lat: 31.3655, lng: 121.4112 },
+          '嘉定区': { lat: 31.3825, lng: 121.2655 },
+          '浦东新区': { lat: 31.2215, lng: 121.5735 },
+          '金山区': { lat: 30.7422, lng: 121.3415 },
+          '松江区': { lat: 31.0375, lng: 121.2155 },
+          '青浦区': { lat: 31.1505, lng: 121.1245 },
+          '奉贤区': { lat: 30.9185, lng: 121.4745 },
+          '崇明区': { lat: 31.6225, lng: 121.3975 },
+          '线上': { lat: 31.2304, lng: 121.4737 }
+        };
+        
+        const transformedOrders: Order[] = apiOrders.map((order: any) => {
+          // 根据行政区设置坐标，如果数据库有坐标则使用数据库的，否则使用行政区中心坐标
+          const districtCoord = DISTRICT_CENTERS[order.district] || { lat: 31.2304, lng: 121.4737 };
+          const finalLat = order.latitude || districtCoord.lat;
+          const finalLng = order.longitude || districtCoord.lng;
+          
+          return {
+            id: order.id,
+            district: order.district,
+            grade: order.education_stage + (order.grade_detail ? ` ${order.grade_detail}` : ''),
+            subject: order.subject,
+            coordinate: {
+              lat: finalLat,
+              lng: finalLng
+            },
+            studentDesc: order.requirements || order.title || '学员信息待完善',
+            studentDetail: order.raw_content || order.requirements || '暂无详细信息',
+            frequency: '每周2次，每次2小时',
+            address: order.address,
+            requirements: order.requirements || '男女教员均可',
+            price: order.salary_max || order.salary_min || 0,
+            priceText: order.salary_min && order.salary_max 
+              ? (order.salary_min === order.salary_max 
+                  ? `${order.salary_min}/h` 
+                  : `${order.salary_min}-${order.salary_max}/h`) 
+              : (order.salary_min ? `${order.salary_min}/h` : '面议'),
+            isHighPrice: (order.salary_max || order.salary_min || 0) >= 120,
+            isOnline: order.teaching_type === '网课',
+            isCollegeStudent: true,
+            isNegotiable: !order.salary_min && !order.salary_max,
+            contactTeacher: 'Ken06103',
+            publishTime: order.published_at || order.created_at || new Date().toISOString(),
+            rawContent: order.raw_content || '',
+            idLine: `家教编号：${order.order_no}`
+          };
+        });
         setOrders(transformedOrders);
       } catch (err: any) {
         console.error('加载订单失败:', err);
@@ -218,11 +249,24 @@ export default function App() {
   };
 
   useEffect(() => {
-    setStats((prev: any) => ({
-      ...prev,
-      totalOrders: orders.length,
-      lastUpdated: new Date().toLocaleString('zh-CN')
-    }));
+    if (orders.length > 0) {
+      const latestOrder = orders.reduce((latest, current) => {
+        const latestTime = new Date(latest.publishTime).getTime();
+        const currentTime = new Date(current.publishTime).getTime();
+        return currentTime > latestTime ? current : latest;
+      });
+      setStats((prev: any) => ({
+        ...prev,
+        totalOrders: orders.length,
+        lastUpdated: new Date(latestOrder.publishTime).toLocaleString('zh-CN')
+      }));
+    } else {
+      setStats((prev: any) => ({
+        ...prev,
+        totalOrders: 0,
+        lastUpdated: '暂无数据'
+      }));
+    }
   }, [orders]);
 
   useEffect(() => {
