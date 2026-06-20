@@ -878,40 +878,73 @@ export default function AdminDashboard({
 
     const itemsToPublish = drafts.filter(d => selectedDraftIds.includes(d.id));
     
-    // Filter out items with invalid IDs (not UUIDs)
-    const validItems = itemsToPublish.filter(item => {
-      // Check if it's a valid UUID format
-      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-      if (!uuidRegex.test(item.id)) {
-        console.error(`订单 ${item.id} 没有有效的后端ID，无法上架`);
-        return false;
-      }
-      return true;
-    });
+    // 分类：已创建到后端的草稿 vs 未创建的草稿
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    
+    const itemsNeedCreateFirst = itemsToPublish.filter(item => !uuidRegex.test(item.id));
+    const itemsReadyToPublish = itemsToPublish.filter(item => uuidRegex.test(item.id));
 
-    if (validItems.length === 0) {
-      triggerAlert('所选订单没有有效的后端记录，请重新解析创建订单！', 'error');
-      return;
-    }
-
+    // 验证行政区
     const invalidItemsIndex = itemsToPublish.findIndex(item => !item.district);
     if (invalidItemsIndex !== -1) {
       triggerAlert(`订单 ${itemsToPublish[invalidItemsIndex].id} 的行政区和定位仍未分配，请先补充修改！`, 'error');
       return;
     }
 
-    let successCount = 0;
-    for (const item of validItems) {
+    // 先创建未创建的草稿到后端，然后上架
+    let totalSuccess = 0;
+    const allItemIdsToPublish: string[] = [];
+
+    // 已有的直接上架
+    for (const item of itemsReadyToPublish) {
+      allItemIdsToPublish.push(item.id);
+    }
+
+    // 新建的创建后上架
+    for (const item of itemsNeedCreateFirst) {
+      try {
+        const created = await api.createOrder({
+          title: item.studentDesc,
+          subject: item.subject,
+          education_stage: item.grade,
+          grade_detail: item.gradeDetail,
+          district: item.district,
+          address: item.address,
+          salary_min: item.priceMin || item.price,
+          salary_max: item.priceMax || item.price,
+          teaching_type: item.isOnline ? '网课' : '上门',
+          requirements: item.requirements,
+          source: '管理员手动创建',
+          raw_content: item.rawContent,
+          status: 'draft',
+          order_no: item.order_no || item.orderId
+        });
+        
+        // 更新本地草稿的id为后端返回的uuid
+        setDrafts(prev => prev.map(d => d.id === item.id ? { ...d, id: created.id } : d));
+        
+        // 立即上架新建的订单
+        await api.publishOrder(created.id);
+        totalSuccess++;
+      } catch (err) {
+        console.error('创建/上架订单失败:', err);
+      }
+    }
+
+    // 上架已有的订单
+    for (const item of itemsReadyToPublish) {
       try {
         await api.publishOrder(item.id);
-        successCount++;
+        totalSuccess++;
       } catch (err) {
         console.error('发布订单失败:', err);
       }
     }
 
-    if (successCount < validItems.length) {
-      triggerAlert(`部分订单上架失败 (${successCount}/${validItems.length})，请刷新页面后重试！`, 'error');
+    if (totalSuccess < itemsToPublish.length) {
+      triggerAlert(`部分订单上架失败 (${totalSuccess}/${itemsToPublish.length})，请刷新页面后重试！`, 'error');
+    } else {
+      triggerAlert(`成功上架 ${totalSuccess} 个订单！`, 'success');
     }
 
     try {
