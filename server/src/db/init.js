@@ -12,7 +12,6 @@ async function initDatabase() {
   try {
     console.log('🔄 开始初始化数据库...');
 
-    // 读取 schema.sql
     const possiblePaths = [
       path.join(__dirname, '../../../database/schema.sql'),
       path.join(__dirname, '../../database/schema.sql'),
@@ -30,15 +29,13 @@ async function initDatabase() {
     }
 
     if (!schema) {
+      console.error('❌ 无法找到 schema.sql 文件');
       throw new Error('schema.sql not found');
     }
-    const schema = fs.readFileSync(schemaPath, 'utf8');
 
-    // 执行 schema
     await pool.query(schema);
     console.log('✅ 表结构创建成功');
 
-    // 创建默认管理员账户
     const passwordHash = await bcrypt.hash('admin123', 10);
     await pool.query(
       `INSERT INTO admins (username, password_hash, nickname)
