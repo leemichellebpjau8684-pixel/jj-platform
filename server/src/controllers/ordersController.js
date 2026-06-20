@@ -160,14 +160,16 @@ async function createOrder(req, res) {
       title, subject, education_stage, grade_detail,
       salary_min, salary_max, contact_fee,
       district, address, latitude, longitude,
-      teaching_type, requirements, source, raw_content
+      teaching_type, requirements, source, raw_content,
+      order_no
     } = req.body;
     
     const newOrder = await store.orders.create({
       title, subject, education_stage, grade_detail,
       salary_min, salary_max, contact_fee,
       district, address, latitude, longitude,
-      teaching_type, requirements, source, raw_content
+      teaching_type, requirements, source, raw_content,
+      order_no
     });
     
     res.status(201).json({

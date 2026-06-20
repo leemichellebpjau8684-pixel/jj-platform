@@ -69,9 +69,9 @@ async function initStore() {
               teaching_type, requirements, source, raw_content,
               status, geo_status
             ) VALUES (
-              COALESCE($1, generate_order_no()), $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'draft', 'pending'
+              $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'draft', 'pending'
             ) RETURNING *`,
-            [order_no, title, subject, education_stage, grade_detail,
+            [order_no || generate_order_no(), title, subject, education_stage, grade_detail,
              salary_min ?? null, salary_max ?? null, contact_fee ?? null,
              district, address, finalLat, finalLng,
              teaching_type, requirements ?? null, source, raw_content ?? null]
