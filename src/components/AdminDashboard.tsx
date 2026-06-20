@@ -3,7 +3,7 @@ import {
   Check, X, FileText, AlertTriangle, Play, RefreshCw, Trash2, 
   Search, ShieldCheck, LogIn, ChevronRight, CornerDownRight, CheckSquare, 
   Square, Info, Activity, Database, Calendar, Clock, DollarSign, MapPin,
-  HelpCircle, Loader
+  HelpCircle, Loader, RotateCcw
 } from 'lucide-react';
 import { Order, Coordinate } from '../types';
 import { SHANGHAI_DISTRICTS, SUBJECTS, GRADES } from '../data';
@@ -142,6 +142,12 @@ export default function AdminDashboard({
   const [archiveSearchKeyword, setArchiveSearchKeyword] = useState('');
   const [archiveSearchDistrict, setArchiveSearchDistrict] = useState('全部');
   const [archiveSearchSubject, setArchiveSearchSubject] = useState('全部');
+
+  // Pagination state
+  const [onlinePage, setOnlinePage] = useState(1);
+  const [archivePage, setArchivePage] = useState(1);
+  const ONLINE_PER_PAGE = 20;
+  const ARCHIVE_PER_PAGE = 20;
   
   // Archive batch delete states
   const [selectedArchiveIds, setSelectedArchiveIds] = useState<string[]>([]);
@@ -901,25 +907,25 @@ export default function AdminDashboard({
     triggerAlert(`一键极速上架成功：${itemsToPublish.length} 个订单已在前台及地图实时生效！`, 'success');
   };
 
-  // 2. Archive selected drafts (批量作废归档草稿)
+  // 2. Delete selected drafts (批量删除草稿)
   const handleBatchDeclineDrafts = () => {
     if (selectedDraftIds.length === 0) {
-      triggerAlert('请先在左侧勾选需要作废的草稿！', 'error');
+      triggerAlert('请先在左侧勾选需要删除的草稿！', 'error');
       return;
     }
 
-    // Add archive timestamp
-    const now = new Date();
-    const nowTime = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
-    const itemsToDecline = drafts
-      .filter(d => selectedDraftIds.includes(d.id))
-      .map(item => ({ ...item, publishTime: nowTime })); // timestamp
+    const itemsToDelete = drafts.filter(d => selectedDraftIds.includes(d.id));
+    
+    for (const item of itemsToDelete) {
+      if (item.id) {
+        api.deleteOrder(item.id).catch(() => {});
+      }
+    }
 
-    setArchives(prev => [...itemsToDecline, ...prev]);
     setDrafts(prev => prev.filter(d => !selectedDraftIds.includes(d.id)));
     setSelectedDraftIds([]);
     setSelectedDraftId(null);
-    triggerAlert(`已作废并归档 ${itemsToDecline.length} 条数据。`, 'info');
+    triggerAlert(`已删除 ${itemsToDelete.length} 条草稿数据。`, 'info');
   };
 
   // 3. Take down active listings (在售订单批量下架&自省归档)
@@ -986,6 +992,44 @@ export default function AdminDashboard({
     triggerAlert(`已永久删除 ${deletedCount} 条归档记录！`, 'success');
   };
 
+  // Archive batch reactivate handler
+  const [showArchiveReactivateConfirm, setShowArchiveReactivateConfirm] = useState(false);
+
+  const handleArchiveBatchReactivate = () => {
+    if (selectedArchiveIds.length === 0) {
+      triggerAlert('请先勾选要重新上架的归档记录！', 'error');
+      return;
+    }
+    setShowArchiveReactivateConfirm(true);
+  };
+
+  const handleArchiveReactivateConfirmAction = async () => {
+    const itemsToReactivate = archives.filter(a => selectedArchiveIds.includes(a.id));
+    let successCount = 0;
+    
+    for (const item of itemsToReactivate) {
+      try {
+        const reactivatedOrder = await api.reactivateOrder(item.id);
+        if (reactivatedOrder) {
+          successCount++;
+        }
+      } catch (err) {
+        console.error(`重新上架订单 ${item.id} 失败:`, err);
+      }
+    }
+    
+    setArchives(prev => prev.filter(a => !selectedArchiveIds.includes(a.id)));
+    setSelectedArchiveIds([]);
+    setShowArchiveReactivateConfirm(false);
+    
+    if (successCount > 0) {
+      fetchAdminOrders();
+      triggerAlert(`成功重新上架 ${successCount} 个订单！已恢复到在售列表。`, 'success');
+    } else {
+      triggerAlert('重新上架失败，请稍后重试！', 'error');
+    }
+  };
+
   // Filtering on-sale orders list
   const filteredOnline = useMemo(() => {
     return orders.filter(o => {
@@ -995,6 +1039,34 @@ export default function AdminDashboard({
       return true;
     });
   }, [orders, onlineSearchId, onlineSearchDistrict, onlineSearchSubject]);
+
+  // Paginated online orders
+  const paginatedOnline = useMemo(() => {
+    const start = (onlinePage - 1) * ONLINE_PER_PAGE;
+    return filteredOnline.slice(start, start + ONLINE_PER_PAGE);
+  }, [filteredOnline, onlinePage]);
+
+  const totalOnlinePages = Math.ceil(filteredOnline.length / ONLINE_PER_PAGE);
+
+  // Filtering and paginating archive orders
+  const filteredArchives = useMemo(() => {
+    return archives.filter(item => {
+      const matchKeyword = !archiveSearchKeyword ||
+        (item.order_no || item.orderId || item.id).toLowerCase().includes(archiveSearchKeyword.toLowerCase()) ||
+        item.studentDesc.toLowerCase().includes(archiveSearchKeyword.toLowerCase()) ||
+        item.address.toLowerCase().includes(archiveSearchKeyword.toLowerCase());
+      const matchDistrict = archiveSearchDistrict === '全部' || item.district === archiveSearchDistrict;
+      const matchSubject = archiveSearchSubject === '全部' || item.subject === archiveSearchSubject;
+      return matchKeyword && matchDistrict && matchSubject;
+    });
+  }, [archives, archiveSearchKeyword, archiveSearchDistrict, archiveSearchSubject]);
+
+  const paginatedArchives = useMemo(() => {
+    const start = (archivePage - 1) * ARCHIVE_PER_PAGE;
+    return filteredArchives.slice(start, start + ARCHIVE_PER_PAGE);
+  }, [filteredArchives, archivePage]);
+
+  const totalArchivePages = Math.ceil(filteredArchives.length / ARCHIVE_PER_PAGE);
 
   if (isVerifying) {
     return (
@@ -1147,6 +1219,38 @@ export default function AdminDashboard({
                 className="px-4 py-1.5 bg-red-600 hover:bg-red-700 text-xs text-white font-bold rounded-lg"
               >
                 确认永久删除
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ARCHIVE BATCH REACTIVATE CONFIRMATION DIALOG */}
+      {showArchiveReactivateConfirm && (
+        <div className="absolute inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="w-full max-w-[420px] bg-neutral-900 border border-green-800/50 rounded-2xl p-4 md:p-6 shadow-2xl space-y-4">
+            <div className="flex gap-3 text-green-500">
+              <RotateCcw className="w-8 md:w-10 h-8 md:h-10 shrink-0" />
+              <div>
+                <h3 className="font-bold text-sm text-neutral-100">确认重新上架选中的归档订单吗？</h3>
+                <p className="text-[11px] text-neutral-400 mt-1 leading-relaxed">
+                  重新上架后：订单将从归档状态恢复为在售状态，在前台及地图上重新显示。
+                </p>
+              </div>
+            </div>
+            
+            <div className="flex justify-end gap-2.5 pt-2 border-t border-neutral-800">
+              <button
+                onClick={() => setShowArchiveReactivateConfirm(false)}
+                className="px-4 py-1.5 border border-neutral-800 hover:bg-neutral-800 text-xs text-neutral-400 font-semibold rounded-lg"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleArchiveReactivateConfirmAction}
+                className="px-4 py-1.5 bg-green-600 hover:bg-green-700 text-xs text-white font-bold rounded-lg"
+              >
+                确认重新上架
               </button>
             </div>
           </div>
@@ -1780,15 +1884,15 @@ export default function AdminDashboard({
               <div className="hidden md:flex bg-neutral-850/50 px-5 py-2.5 border-b border-neutral-800 text-[10px] text-neutral-400 font-bold uppercase tracking-wider items-center gap-4">
                 <div 
                   onClick={() => {
-                    if (selectedOnlineIds.length === filteredOnline.length) {
+                    if (selectedOnlineIds.length === paginatedOnline.length) {
                       setSelectedOnlineIds([]);
                     } else {
-                      setSelectedOnlineIds(filteredOnline.map(o => o.id));
+                      setSelectedOnlineIds(paginatedOnline.map(o => o.id));
                     }
                   }}
                   className="cursor-pointer"
                 >
-                  {selectedOnlineIds.length === filteredOnline.length && filteredOnline.length > 0 ? (
+                  {selectedOnlineIds.length === paginatedOnline.length && paginatedOnline.length > 0 ? (
                     <CheckSquare className="w-4 h-4 text-orange-500 shrink-0" />
                   ) : (
                     <Square className="w-4 h-4 text-neutral-600 shrink-0" />
@@ -1811,7 +1915,7 @@ export default function AdminDashboard({
                     <p className="text-[10px] text-neutral-650 mt-0.5">请修改或重置过滤字典关键词后再试。</p>
                   </div>
                 ) : (
-                  filteredOnline.map(item => {
+                  paginatedOnline.map(item => {
                     const isChecked = selectedOnlineIds.includes(item.id);
 
                     return (
@@ -1956,6 +2060,29 @@ export default function AdminDashboard({
                     );
                   })
                 )}
+
+                {/* Online Orders Pagination */}
+                {totalOnlinePages > 1 && (
+                  <div className="flex items-center justify-center gap-2 py-3 border-t border-neutral-800 shrink-0">
+                    <button
+                      onClick={() => setOnlinePage(p => Math.max(1, p - 1))}
+                      disabled={onlinePage === 1}
+                      className="px-3 py-1.5 text-xs font-bold text-neutral-400 hover:text-orange-500 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                    >
+                      上一页
+                    </button>
+                    <span className="px-3 py-1.5 text-xs font-bold text-orange-500 bg-orange-950/30 rounded">
+                      {onlinePage} / {totalOnlinePages}
+                    </span>
+                    <button
+                      onClick={() => setOnlinePage(p => Math.min(totalOnlinePages, p + 1))}
+                      disabled={onlinePage === totalOnlinePages}
+                      className="px-3 py-1.5 text-xs font-bold text-neutral-400 hover:text-orange-500 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                    >
+                      下一页
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -2011,6 +2138,16 @@ export default function AdminDashboard({
                 ))}
               </select>
 
+              {/* Batch Reactivate Button */}
+              <button
+                onClick={handleArchiveBatchReactivate}
+                disabled={selectedArchiveIds.length === 0}
+                className="px-3 md:px-4 py-1.5 bg-green-600/20 border border-green-500/30 text-green-400 font-bold text-[10px] md:text-xs rounded-lg hover:bg-green-600/30 hover:border-green-500/50 transition-all disabled:opacity-30 disabled:cursor-not-allowed flex items-center gap-1"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>重新上架 ({selectedArchiveIds.length})</span>
+              </button>
+
               {/* Batch Delete Button */}
               <button
                 onClick={handleArchiveBatchDelete}
@@ -2028,15 +2165,6 @@ export default function AdminDashboard({
                 <div 
                   className="w-10 cursor-pointer"
                   onClick={() => {
-                    const filteredArchives = archives.filter(item => {
-                      const matchKeyword = !archiveSearchKeyword || 
-                        (item.order_no || item.orderId || item.id).toLowerCase().includes(archiveSearchKeyword.toLowerCase()) ||
-                        item.studentDesc.toLowerCase().includes(archiveSearchKeyword.toLowerCase()) ||
-                        item.address.toLowerCase().includes(archiveSearchKeyword.toLowerCase());
-                      const matchDistrict = archiveSearchDistrict === '全部' || item.district === archiveSearchDistrict;
-                      const matchSubject = archiveSearchSubject === '全部' || item.subject === archiveSearchSubject;
-                      return matchKeyword && matchDistrict && matchSubject;
-                    });
                     const allSelected = filteredArchives.every(item => selectedArchiveIds.includes(item.id));
                     if (allSelected) {
                       setSelectedArchiveIds(prev => prev.filter(id => !filteredArchives.some(item => item.id === id)));
@@ -2046,15 +2174,6 @@ export default function AdminDashboard({
                   }}
                 >
                   {(() => {
-                    const filteredArchives = archives.filter(item => {
-                      const matchKeyword = !archiveSearchKeyword || 
-                        (item.order_no || item.orderId || item.id).toLowerCase().includes(archiveSearchKeyword.toLowerCase()) ||
-                        item.studentDesc.toLowerCase().includes(archiveSearchKeyword.toLowerCase()) ||
-                        item.address.toLowerCase().includes(archiveSearchKeyword.toLowerCase());
-                      const matchDistrict = archiveSearchDistrict === '全部' || item.district === archiveSearchDistrict;
-                      const matchSubject = archiveSearchSubject === '全部' || item.subject === archiveSearchSubject;
-                      return matchKeyword && matchDistrict && matchSubject;
-                    });
                     const allSelected = filteredArchives.length > 0 && filteredArchives.every(item => selectedArchiveIds.includes(item.id));
                     const someSelected = filteredArchives.some(item => selectedArchiveIds.includes(item.id));
                     return allSelected ? (
@@ -2094,7 +2213,7 @@ export default function AdminDashboard({
                       <p className="text-[10px] text-neutral-600 mt-0.5">请修改搜索条件后再试。</p>
                     </div>
                   ) : (
-                    filteredArchives.map(item => {
+                    paginatedArchives.map(item => {
                       const isChecked = selectedArchiveIds.includes(item.id);
                       const displayId = item.order_no || item.orderId || item.id;
                       return (
@@ -2155,6 +2274,29 @@ export default function AdminDashboard({
                   );
                 })()}
               </div>
+
+              {/* Archive Pagination */}
+              {totalArchivePages > 1 && (
+                <div className="flex items-center justify-center gap-2 py-3 border-t border-neutral-800 shrink-0">
+                  <button
+                    onClick={() => setArchivePage(p => Math.max(1, p - 1))}
+                    disabled={archivePage === 1}
+                    className="px-3 py-1.5 text-xs font-bold text-neutral-400 hover:text-orange-500 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  >
+                    上一页
+                  </button>
+                  <span className="px-3 py-1.5 text-xs font-bold text-orange-500 bg-orange-950/30 rounded">
+                    {archivePage} / {totalArchivePages}
+                  </span>
+                  <button
+                    onClick={() => setArchivePage(p => Math.min(totalArchivePages, p + 1))}
+                    disabled={archivePage === totalArchivePages}
+                    className="px-3 py-1.5 text-xs font-bold text-neutral-400 hover:text-orange-500 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  >
+                    下一页
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         )}

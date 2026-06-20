@@ -309,6 +309,7 @@ export default function App() {
   const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
   const [feedbackContent, setFeedbackContent] = useState('');
   const [feedbackLimitAlert, setFeedbackLimitAlert] = useState(false);
+  const [feedbackSuccessAlert, setFeedbackSuccessAlert] = useState(false);
 
   const MAX_FEEDBACK_COUNT = 3;
 
@@ -339,6 +340,8 @@ export default function App() {
     setFeedbacks(prev => [...prev, newFeedback]);
     setFeedbackContent('');
     setIsFeedbackModalOpen(false);
+    setFeedbackSuccessAlert(true);
+    setTimeout(() => setFeedbackSuccessAlert(false), 3000);
   };
 
   const markFeedbackAsRead = (feedbackId: string) => {
@@ -373,6 +376,12 @@ export default function App() {
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const prevActiveTabRef = useRef<string>(activeTab);
 
+  // Pagination state
+  const [listPage, setListPage] = useState(1);
+  const [favoritesPage, setFavoritesPage] = useState(1);
+  const ORDERS_PER_PAGE = 10;
+  const FAVORITES_PER_PAGE = 10;
+
   // Favorites management - store complete order data
   const [favoriteOrdersData, setFavoriteOrdersData] = useState<Order[]>(() => {
     try {
@@ -388,6 +397,15 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('jiajiao_favorites_data', JSON.stringify(favoriteOrdersData));
   }, [favoriteOrdersData]);
+
+  // Reset pagination when tab changes
+  useEffect(() => {
+    if (activeTab === 'list') {
+      setListPage(1);
+    } else if (activeTab === 'favorites') {
+      setFavoritesPage(1);
+    }
+  }, [activeTab]);
 
   // Toggle favorite status - store complete order data
   const toggleFavorite = (order: Order) => {
@@ -601,6 +619,21 @@ export default function App() {
       return 0; // retain database natural seed ordering
     });
   }, [orders, selectedDistricts, selectedGrades, selectedSubjects, tagOnline, tagCollege, tagHighPrice, queryTerms, advancedFilters, currentLandmark, sortMode]);
+
+  // Paginated orders for list tab
+  const paginatedOrders = useMemo(() => {
+    const start = (listPage - 1) * ORDERS_PER_PAGE;
+    return filteredOrders.slice(start, start + ORDERS_PER_PAGE);
+  }, [filteredOrders, listPage]);
+
+  // Paginated favorites for favorites tab
+  const paginatedFavorites = useMemo(() => {
+    const start = (favoritesPage - 1) * FAVORITES_PER_PAGE;
+    return favoriteOrdersData.slice(start, start + FAVORITES_PER_PAGE);
+  }, [favoriteOrdersData, favoritesPage]);
+
+  const totalListPages = Math.ceil(filteredOrders.length / ORDERS_PER_PAGE);
+  const totalFavoritesPages = Math.ceil(favoriteOrdersData.length / FAVORITES_PER_PAGE);
 
   // Selected Order object reference - search from both orders and favorites
   const selectedOrder = useMemo(() => {
@@ -1909,7 +1942,7 @@ export default function App() {
                   </button>
                 </div>
               ) : (
-                filteredOrders.map((order) => {
+                paginatedOrders.map((order) => {
                   const isActive = selectedOrderId === order.id;
                   
                   // Distance math
@@ -2235,6 +2268,29 @@ export default function App() {
                 </div>
               )}
 
+              {/* Pagination Controls */}
+              {activeTab === 'list' && totalListPages > 1 && (
+                <div className="flex items-center justify-center gap-2 py-3 border-t border-gray-200 bg-white shrink-0">
+                  <button
+                    onClick={() => setListPage(p => Math.max(1, p - 1))}
+                    disabled={listPage === 1}
+                    className="px-3 py-1.5 text-sm font-bold text-gray-600 hover:text-orange-500 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  >
+                    上一页
+                  </button>
+                  <span className="px-3 py-1.5 text-sm font-bold text-orange-500 bg-orange-50 rounded">
+                    {listPage} / {totalListPages}
+                  </span>
+                  <button
+                    onClick={() => setListPage(p => Math.min(totalListPages, p + 1))}
+                    disabled={listPage === totalListPages}
+                    className="px-3 py-1.5 text-sm font-bold text-gray-600 hover:text-orange-500 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  >
+                    下一页
+                  </button>
+                </div>
+              )}
+
             </section>
 
           </div>
@@ -2305,7 +2361,7 @@ export default function App() {
               ) : (
                 /* Favorites List */
                 <div className="flex flex-col gap-2">
-                  {favoriteOrders.map((order) => {
+                  {paginatedFavorites.map((order) => {
                     const isActive = selectedOrderId === order.id;
                     const isFav = isFavorited(order.id);
                     
@@ -2453,6 +2509,30 @@ export default function App() {
                   <p className="text-sm text-gray-500">从左侧选择一个收藏的家教单查看详情</p>
                 </div>
               )}
+              
+              {/* Favorites Pagination Controls */}
+              {activeTab === 'favorites' && totalFavoritesPages > 1 && (
+                <div className="flex items-center justify-center gap-2 py-3 border-t border-gray-200 bg-white shrink-0">
+                  <button
+                    onClick={() => setFavoritesPage(p => Math.max(1, p - 1))}
+                    disabled={favoritesPage === 1}
+                    className="px-3 py-1.5 text-sm font-bold text-gray-600 hover:text-orange-500 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  >
+                    上一页
+                  </button>
+                  <span className="px-3 py-1.5 text-sm font-bold text-orange-500 bg-orange-50 rounded">
+                    {favoritesPage} / {totalFavoritesPages}
+                  </span>
+                  <button
+                    onClick={() => setFavoritesPage(p => Math.min(totalFavoritesPages, p + 1))}
+                    disabled={favoritesPage === totalFavoritesPages}
+                    className="px-3 py-1.5 text-sm font-bold text-gray-600 hover:text-orange-500 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  >
+                    下一页
+                  </button>
+                </div>
+              )}
+
             </section>
 
             {/* Mobile Detail Modal */}
@@ -3066,11 +3146,19 @@ export default function App() {
         </div>
       )}
 
-      {/* Feedback Modal */}
+      {/* Feedback Limit Alert */}
       {feedbackLimitAlert && (
         <div className="fixed top-4 left-1/2 transform -translate-x-1/2 px-4 py-2.5 rounded-xl bg-red-500 text-white shadow-xl z-50 flex items-center gap-2">
           <AlertTriangle className="w-4 h-4" />
           <span className="text-sm font-bold">每个用户最多只能提交 {MAX_FEEDBACK_COUNT} 次反馈，感谢您的支持！</span>
+        </div>
+      )}
+
+      {/* Feedback Success Alert */}
+      {feedbackSuccessAlert && (
+        <div className="fixed top-4 left-1/2 transform -translate-x-1/2 px-4 py-2.5 rounded-xl bg-green-500 text-white shadow-xl z-50 flex items-center gap-2">
+          <Check className="w-4 h-4" />
+          <span className="text-sm font-bold">反馈提交成功，感谢您的宝贵建议！</span>
         </div>
       )}
 

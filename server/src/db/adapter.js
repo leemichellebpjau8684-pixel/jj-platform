@@ -138,6 +138,13 @@ async function initStore() {
           );
           return result.rows[0] || null;
         },
+        reactivate: async (id) => {
+          const result = await pool.query(
+            'UPDATE orders SET status = $1, published_at = NOW() WHERE id = $2 RETURNING *',
+            ['active', id]
+          );
+          return result.rows[0] || null;
+        },
         incrementView: async (id) => {
           await pool.query('UPDATE orders SET view_count = view_count + 1 WHERE id = $1', [id]);
         },

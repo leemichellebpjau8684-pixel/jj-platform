@@ -337,6 +337,42 @@ async function archiveOrder(req, res) {
   }
 }
 
+async function reactivateOrder(req, res) {
+  try {
+    const store = getStore();
+    const { id } = req.params;
+    
+    const order = await store.orders.getById(id);
+    
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        error: '订单不存在'
+      });
+    }
+    
+    if (order.status !== 'closed') {
+      return res.status(400).json({
+        success: false,
+        error: '只有归档状态的订单可以重新上架'
+      });
+    }
+    
+    const reactivatedOrder = await store.orders.reactivate(id);
+    
+    res.json({
+      success: true,
+      order: reactivatedOrder
+    });
+  } catch (err) {
+    console.error('重新上架订单失败:', err.message);
+    res.status(500).json({
+      success: false,
+      error: '重新上架订单失败'
+    });
+  }
+}
+
 module.exports = {
   getOrders,
   getAdminOrders,
@@ -345,5 +381,6 @@ module.exports = {
   updateOrder,
   deleteOrder,
   publishOrder,
-  archiveOrder
+  archiveOrder,
+  reactivateOrder
 };

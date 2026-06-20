@@ -11,5 +11,6 @@ router.put('/:id', authMiddleware, ordersController.updateOrder);
 router.delete('/:id', authMiddleware, ordersController.deleteOrder);
 router.post('/:id/publish', authMiddleware, ordersController.publishOrder);
 router.post('/:id/archive', authMiddleware, ordersController.archiveOrder);
+router.post('/:id/reactivate', authMiddleware, ordersController.reactivateOrder);
 
 module.exports = router;

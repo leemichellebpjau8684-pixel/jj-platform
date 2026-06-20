@@ -192,6 +192,13 @@ class ApiService {
     });
     return response.order;
   }
+
+  async reactivateOrder(id: string): Promise<Order> {
+    const response = await this.request<OrderResponse>(`/api/orders/${id}/reactivate`, {
+      method: 'POST',
+    });
+    return response.order;
+  }
 }
 
 export const api = new ApiService();
