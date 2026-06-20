@@ -193,6 +193,7 @@ export default function AdminDashboard({
     }
 
     const parsedList: Order[] = [];
+    const failedBlocks: { block: string; reason: string }[] = [];
     const now = new Date();
     const timestampStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
 
@@ -240,7 +241,32 @@ export default function AdminDashboard({
         }
       }
       
-      // 如果没有找到，尝试传统方式匹配
+      // 如果仍然没有找到订单ID，尝试从标题行中提取（如"暑假单261101" → 261101）
+      if (!orderId) {
+        // 查找可能包含订单编号的标题行（如"暑假单261101"）
+        const titlePatterns = [
+          /([A-Za-z\u4e00-\u9fa5]+)[^\d]*(\d{5,})/,  // 匹配"暑假单261101"
+          /(\d{5,})/,  // 直接匹配5位以上数字
+        ];
+        
+        for (const line of lines) {
+          for (const pattern of titlePatterns) {
+            const match = line.match(pattern);
+            if (match) {
+              // 取最后匹配的数字作为订单ID
+              const numMatch = line.match(/\d{5,}/);
+              if (numMatch) {
+                orderId = numMatch[0];
+                idLine = line.trim();
+                break;
+              }
+            }
+          }
+          if (orderId) break;
+        }
+      }
+      
+      // 如果还没有，尝试传统方式匹配
       if (!orderId) {
         // First, check for bracket number patterns like 【762129】 or 🌙【818272】号信息
         const bracketIdMatch = block.match(/【(\d+)】/);
@@ -265,9 +291,9 @@ export default function AdminDashboard({
         }
       }
       
-      // If still no ID found, skip this block with warning
+      // If no valid ID found, add to failed list
       if (!orderId) {
-        console.warn(`Skipping block ${index}: No valid ID found`);
+        failedBlocks.push({ block, reason: '未找到可识别的订单编号' });
         return;
       }
 
@@ -278,23 +304,23 @@ export default function AdminDashboard({
       const existingDraftById = drafts.find(o => o.id === orderId);
 
       if (existingOrderByNo) {
-        // Found existing active order with same order number - skip this block
+        // Found existing active order with same order number - add to failed list
         const duplicateId = existingOrderByNo.order_no || orderId;
-        console.warn(`家教编号 ${duplicateId} 的订单已在售，跳过此订单`);
-        return; // Skip this block, don't add to parsedList
+        failedBlocks.push({ block, reason: `家教编号 ${duplicateId} 的订单已在售，请检查修改后重试` });
+        return;
       } else if (existingDraftByNo) {
-        // Found existing draft with same order number - skip this block
+        // Found existing draft with same order number - add to failed list
         const duplicateId = existingDraftByNo.orderId || orderId;
-        console.warn(`家教编号 ${duplicateId} 的订单已在草稿中，跳过此订单`);
-        return; // Skip this block, don't add to parsedList
+        failedBlocks.push({ block, reason: `家教编号 ${duplicateId} 的订单已在草稿中` });
+        return;
       } else if (existingOrderById) {
-        // Found existing active order with same ID - skip this block
-        console.warn(`订单 ${orderId} 已存在于在售列表，跳过此订单`);
-        return; // Skip this block, don't add to parsedList
+        // Found existing active order with same ID - add to failed list
+        failedBlocks.push({ block, reason: `订单 ${orderId} 已存在于在售列表` });
+        return;
       } else if (existingDraftById) {
-        // Found existing draft with same ID - skip this block
-        console.warn(`订单 ${orderId} 已存在于草稿列表，跳过此订单`);
-        return; // Skip this block, don't add to parsedList
+        // Found existing draft with same ID - add to failed list
+        failedBlocks.push({ block, reason: `订单 ${orderId} 已存在于草稿列表` });
+        return;
       }
 
       // Eliminate overlapping id - append suffix if duplicate
@@ -765,24 +791,44 @@ export default function AdminDashboard({
           order_no: draft.order_no || draft.orderId
         });
         console.error('后端响应:', err.response?.data);
+        // 添加到失败列表
         const errorMsg = err.response?.data?.error || (err.response?.data?.errors?.join ? err.response?.data.errors.join(', ') : err.response?.data?.errors) || err.message || '创建订单失败';
-        triggerAlert(`创建订单失败：${errorMsg}`, 'error');
+        failedBlocks.push({ block: draft.rawContent, reason: `创建失败：${errorMsg}` });
       }
     }
+
+    // 构建提示信息
+    let alertMessage = '';
+    let alertType: 'success' | 'error' | 'info' = 'success';
 
     if (successfullyCreated.length > 0) {
       setDrafts(prev => [...successfullyCreated, ...prev]);
       setSelectedDraftId(successfullyCreated[0]?.id || null);
-      const skippedCount = parsedList.length - successfullyCreated.length;
-      if (skippedCount > 0) {
-        triggerAlert(`成功解析 ${successfullyCreated.length} 个订单，${skippedCount} 个订单已在售或草稿中（内容已保留）！`, 'info');
+      
+      if (failedBlocks.length > 0) {
+        alertMessage = `成功解析 ${successfullyCreated.length} 个订单！${failedBlocks.length} 个订单解析失败（内容已保留在下方框中）`;
+        alertType = 'info';
       } else {
-        triggerAlert(`成功智能拆单解析 ${successfullyCreated.length} 个草稿订单！`, 'success');
+        alertMessage = `成功智能拆单解析 ${successfullyCreated.length} 个草稿订单！`;
+        alertType = 'success';
       }
     } else {
-      triggerAlert('所有订单创建失败，请检查数据格式', 'error');
+      alertMessage = '所有订单创建失败，请检查数据格式';
+      alertType = 'error';
     }
-    // 不自动清空文本框，让管理员自己决定是否保留或删除
+    
+    triggerAlert(alertMessage, alertType);
+
+    // 保留失败内容到粘贴框
+    if (failedBlocks.length > 0) {
+      const failedText = failedBlocks
+        .map(f => `【解析失败】${f.reason}\n${f.block}`)
+        .join('\n\n---\n\n');
+      setRawText(failedText);
+    } else {
+      // 如果全部成功，清空粘贴框
+      setRawText('');
+    }
   };
 
   // Draft editing form state hooks
