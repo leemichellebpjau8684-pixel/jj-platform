@@ -804,14 +804,14 @@ export default function AdminDashboard({
 
   // Handle saving draft edit manually
   const handleSaveDraft = () => {
-    if (!editId) return;
+    if (!selectedDraftId) return;
     if (!editDistrict) {
       triggerAlert('行政区必填，请选中上海一个行政区', 'error');
       return;
     }
 
     setDrafts(prev => prev.map(d => {
-      if (d.id === editId) {
+      if (d.id === selectedDraftId) {
         const coord = DISTRICT_CENTERS[editDistrict] || d.coordinate;
         return {
           ...d,
