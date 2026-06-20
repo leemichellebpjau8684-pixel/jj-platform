@@ -39,54 +39,64 @@ async function initStore() {
           return result.rows[0] || null;
         },
         create: async (data) => {
-          const {
-            title, subject, education_stage, grade_detail,
-            salary_min, salary_max, contact_fee,
-            district, address, latitude, longitude,
-            teaching_type, requirements, source, raw_content,
-            order_no
-          } = data;
-          
-          const DISTRICT_CENTERS = {
-            '黄浦区': { lat: 31.2284, lng: 121.4821 },
-            '徐汇区': { lat: 31.1895, lng: 121.4325 },
-            '长宁区': { lat: 31.2155, lng: 121.4245 },
-            '静安区': { lat: 31.2484, lng: 121.4421 },
-            '普陀区': { lat: 31.2572, lng: 121.3972 },
-            '虹口区': { lat: 31.2721, lng: 121.4912 },
-            '杨浦区': { lat: 31.2942, lng: 121.5236 },
-            '闵行区': { lat: 31.0858, lng: 121.4007 },
-            '宝山区': { lat: 31.3655, lng: 121.4112 },
-            '嘉定区': { lat: 31.3825, lng: 121.2655 },
-            '浦东新区': { lat: 31.2215, lng: 121.5735 },
-            '金山区': { lat: 30.7422, lng: 121.3415 },
-            '松江区': { lat: 31.0375, lng: 121.2155 },
-            '青浦区': { lat: 31.1505, lng: 121.1245 },
-            '奉贤区': { lat: 30.9185, lng: 121.4745 },
-            '崇明区': { lat: 31.6225, lng: 121.3975 },
-            '线上': { lat: 31.2304, lng: 121.4737 }
-          };
-          
-          const defaultCoord = DISTRICT_CENTERS[district] || { lat: 31.2304, lng: 121.4737 };
-          const finalLat = latitude ?? defaultCoord.lat;
-          const finalLng = longitude ?? defaultCoord.lng;
-          
-          const result = await pool.query(
-            `INSERT INTO orders (
-              order_no, title, subject, education_stage, grade_detail,
+          try {
+            const {
+              title, subject, education_stage, grade_detail,
               salary_min, salary_max, contact_fee,
               district, address, latitude, longitude,
               teaching_type, requirements, source, raw_content,
-              status, geo_status
-            ) VALUES (
-              $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'draft', 'pending'
-            ) RETURNING *`,
-            [order_no || generate_order_no(), title, subject, education_stage, grade_detail,
-             salary_min ?? null, salary_max ?? null, contact_fee ?? null,
-             district, address, finalLat, finalLng,
-             teaching_type, requirements ?? null, source, raw_content ?? null]
-          );
-          return result.rows[0];
+              order_no
+            } = data;
+            
+            console.log('Creating order with data:', {
+              title, subject, education_stage, grade_detail,
+              district, address, teaching_type, source, order_no
+            });
+            
+            const DISTRICT_CENTERS = {
+              '黄浦区': { lat: 31.2284, lng: 121.4821 },
+              '徐汇区': { lat: 31.1895, lng: 121.4325 },
+              '长宁区': { lat: 31.2155, lng: 121.4245 },
+              '静安区': { lat: 31.2484, lng: 121.4421 },
+              '普陀区': { lat: 31.2572, lng: 121.3972 },
+              '虹口区': { lat: 31.2721, lng: 121.4912 },
+              '杨浦区': { lat: 31.2942, lng: 121.5236 },
+              '闵行区': { lat: 31.0858, lng: 121.4007 },
+              '宝山区': { lat: 31.3655, lng: 121.4112 },
+              '嘉定区': { lat: 31.3825, lng: 121.2655 },
+              '浦东新区': { lat: 31.2215, lng: 121.5735 },
+              '金山区': { lat: 30.7422, lng: 121.3415 },
+              '松江区': { lat: 31.0375, lng: 121.2155 },
+              '青浦区': { lat: 31.1505, lng: 121.1245 },
+              '奉贤区': { lat: 30.9185, lng: 121.4745 },
+              '崇明区': { lat: 31.6225, lng: 121.3975 },
+              '线上': { lat: 31.2304, lng: 121.4737 }
+            };
+            
+            const defaultCoord = DISTRICT_CENTERS[district] || { lat: 31.2304, lng: 121.4737 };
+            const finalLat = latitude ?? defaultCoord.lat;
+            const finalLng = longitude ?? defaultCoord.lng;
+            
+            const result = await pool.query(
+              `INSERT INTO orders (
+                order_no, title, subject, education_stage, grade_detail,
+                salary_min, salary_max, contact_fee,
+                district, address, latitude, longitude,
+                teaching_type, requirements, source, raw_content,
+                status, geo_status
+              ) VALUES (
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'draft', 'pending'
+              ) RETURNING *`,
+              [order_no || generate_order_no(), title, subject, education_stage, grade_detail,
+               salary_min ?? null, salary_max ?? null, contact_fee ?? null,
+               district, address, finalLat, finalLng,
+               teaching_type, requirements ?? null, source, raw_content ?? null]
+            );
+            return result.rows[0];
+          } catch (err) {
+            console.error('Database create order error:', err.message);
+            throw err;
+          }
         },
         update: async (id, data) => {
           const fields = [];

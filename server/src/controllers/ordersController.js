@@ -150,7 +150,7 @@ async function createOrder(req, res) {
     if (errors.length > 0) {
       return res.status(400).json({
         success: false,
-        errors
+        error: errors.join('；')  // 将错误数组合并为字符串
       });
     }
     
