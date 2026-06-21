@@ -409,14 +409,18 @@ export default function AdminDashboard({
       
       // Check for grade level keywords with detailed extraction
       if (mathGrade === '其他') {
+        // 小学判断：包含小学关键词或小学年级升级关键词
         if (block.includes('小学') || 
             block.includes('一年级') || block.includes('二年级') || 
             block.includes('三年级') || block.includes('四年级') || 
-            block.includes('五年级') || block.match(/\d年级/)?.[0]?.startsWith('1') ||
+            block.includes('五年级') || block.includes('六年级') ||
+            block.match(/\d年级/)?.[0]?.startsWith('1') ||
             block.match(/\d年级/)?.[0]?.startsWith('2') ||
             block.match(/\d年级/)?.[0]?.startsWith('3') ||
             block.match(/\d年级/)?.[0]?.startsWith('4') ||
-            block.match(/\d年级/)?.[0]?.startsWith('5')) {
+            block.match(/\d年级/)?.[0]?.startsWith('5') ||
+            block.includes('二升三') || block.includes('三升四') || 
+            block.includes('四升五') || block.includes('五升六')) {
           mathGrade = '小学';
           const gradeMatch = block.match(/(一|二|三|四|五|六)年级/) || 
                             block.match(/(\d)年级/) ||
@@ -424,13 +428,16 @@ export default function AdminDashboard({
           if (gradeMatch) {
             gradeDetail = gradeMatch[0];
           }
+        // 初中判断：包含初中关键词或初中年级升级关键词
         } else if (block.includes('初中') || block.includes('初一') || 
                    block.includes('初二') || block.includes('初三') ||
-                   block.includes('六年级') || block.includes('七年级') ||
-                   block.includes('八年级') || block.includes('九年级') ||
-                   block.includes('预初一') || block.includes('预备初一')) {
+                   block.includes('七年级') || block.includes('八年级') || 
+                   block.includes('九年级') ||
+                   block.includes('预初一') || block.includes('预备初一') ||
+                   block.includes('六升七') || block.includes('七升八') || 
+                   block.includes('八升九')) {
           mathGrade = '初中';
-          const gradeMatch = block.match(/(初一|初二|初三|六|七|八|九)年级/) ||
+          const gradeMatch = block.match(/(初一|初二|初三|七|八|九)年级/) ||
                             block.match(/(六升七|七升八|八升九)/) ||
                             block.match(/(预初一|预备初一)/);
           if (gradeMatch) {
@@ -819,14 +826,8 @@ export default function AdminDashboard({
     
     triggerAlert(alertMessage, alertType);
 
-    // 保留失败内容到粘贴框
-    if (failedBlocks.length > 0) {
-      const failedText = failedBlocks
-        .map(f => `【解析失败】${f.reason}\n${f.block}`)
-        .join('\n\n---\n\n');
-      setRawText(failedText);
-    } else {
-      // 如果全部成功，清空粘贴框
+    // 如果全部成功，清空粘贴框；失败时不清空，保留原始输入供用户修改
+    if (failedBlocks.length === 0) {
       setRawText('');
     }
   };
