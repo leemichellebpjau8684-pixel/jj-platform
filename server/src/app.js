@@ -13,6 +13,43 @@ app.use(cors());
 app.use(morgan('dev'));
 app.use(express.json());
 
+// Simple rate limiting middleware (100 requests per minute per IP)
+const rateLimitMap = new Map();
+const RATE_LIMIT_WINDOW = 60 * 1000; // 1 minute
+const RATE_LIMIT_MAX = 100; // max requests per window
+
+app.use('/api/', (req, res, next) => {
+  const ip = req.ip || req.connection.remoteAddress || 'unknown';
+  const now = Date.now();
+  
+  if (!rateLimitMap.has(ip)) {
+    rateLimitMap.set(ip, []);
+  }
+  
+  const requests = rateLimitMap.get(ip).filter(time => time > now - RATE_LIMIT_WINDOW);
+  
+  if (requests.length >= RATE_LIMIT_MAX) {
+    return res.status(429).json({
+      success: false,
+      error: '请求过于频繁，请稍后重试'
+    });
+  }
+  
+  requests.push(now);
+  rateLimitMap.set(ip, requests);
+  
+  // Clean up old entries periodically
+  if (rateLimitMap.size > 1000) {
+    for (const [key, times] of rateLimitMap.entries()) {
+      if (times.every(t => t < now - RATE_LIMIT_WINDOW)) {
+        rateLimitMap.delete(key);
+      }
+    }
+  }
+  
+  next();
+});
+
 const ordersRoutes = require('./routes/orders');
 const adminRoutes = require('./routes/admin');
 const healthRoutes = require('./routes/health');

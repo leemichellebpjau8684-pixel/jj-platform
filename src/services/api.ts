@@ -107,15 +107,6 @@ class ApiService {
     return response.orders || [];
   }
 
-  async getOrderById(id: string): Promise<Order | null> {
-    try {
-      const response = await this.request<OrderResponse>(`/api/orders/${id}`);
-      return response.order;
-    } catch {
-      return null;
-    }
-  }
-
   // 管理员接口
   async login(username: string, password: string): Promise<LoginResponse> {
     const response = await this.request<LoginResponse>('/api/admin/login', {

@@ -9,11 +9,6 @@ export const AMAP_CONFIG = {
   city: '上海市',
 };
 
-export const AMAP_WEB_CONFIG = {
-  key: (ENV.VITE_AMAP_WEB_KEY as string) || '',
-  securityCode: (ENV.VITE_AMAP_WEB_SECURITY_CODE as string) || '',
-};
-
 const SHANGHAI_BBOX = { latMin: 30.5, latMax: 31.9, lngMin: 120.8, lngMax: 122.2 };
 export const SHANGHAI_CENTER: Coordinate = { lat: 31.2304, lng: 121.4737 };
 

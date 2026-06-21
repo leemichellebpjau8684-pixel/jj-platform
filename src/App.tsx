@@ -819,70 +819,12 @@ export default function App() {
     }
   };
 
-  // Quick WeChat copiers
+  // Quick Wechat copiers
   const handleCopyWeChatID = () => {
     navigator.clipboard.writeText('Ken06103');
     setCopyFeedback(true);
     setTimeout(() => setCopyFeedback(false), 2000);
   };
-
-  // Custom administrative projection for Interactive Vector SVG Shanghai Map
-  // Range of seed data boundaries (approx min/max)
-  const mapConfig = {
-    minLat: 30.98,
-    maxLat: 31.38,
-    minLng: 121.15,
-    maxLng: 121.65,
-    width: 620,
-    height: 520
-  };
-
-  const getXY = (lat: number, lng: number) => {
-    const x = ((lng - mapConfig.minLng) / (mapConfig.maxLng - mapConfig.minLng)) * mapConfig.width;
-    // Invert Y axis for screen space
-    const y = mapConfig.height - ((lat - mapConfig.minLat) / (mapConfig.maxLat - mapConfig.minLat)) * mapConfig.height;
-    return { x, y };
-  };
-
-  // Shanghai administrative vector centers
-  const SHANGHAI_DISTRICTS_COORDS = [
-    { name: '黄浦区', lat: 31.2284, lng: 121.4821, size: 28 },
-    { name: '徐汇区', lat: 31.1895, lng: 121.4325, size: 36 },
-    { name: '杨浦区', lat: 31.2942, lng: 121.5236, size: 40 },
-    { name: '静安区', lat: 31.2484, lng: 121.4421, size: 30 },
-    { name: '普陀区', lat: 31.2572, lng: 121.3972, size: 34 },
-    { name: '虹口区', lat: 31.2721, lng: 121.4912, size: 28 },
-    { name: '闵行区', lat: 31.0858, lng: 121.4007, size: 75 },
-    { name: '宝山区', lat: 31.3655, lng: 121.4112, size: 68 },
-    { name: '松江区', lat: 31.0375, lng: 121.2155, size: 85 },
-    { name: '浦东新区', lat: 31.2215, lng: 121.5735, size: 98 }
-  ];
-
-  // Path generator for standard winding coordinates of mock Huangpu River visually cutting Pudong/Puxi!
-  const riverPoints = [
-    { lat: 30.98, lng: 121.38 },
-    { lat: 31.02, lng: 121.42 },
-    { lat: 31.06, lng: 121.45 },
-    { lat: 31.12, lng: 121.46 },
-    { lat: 31.17, lng: 121.44 },
-    { lat: 31.20, lng: 121.47 },
-    { lat: 31.23, lng: 121.492 }, // Bund curve
-    { lat: 31.24, lng: 121.51 },
-    { lat: 31.27, lng: 121.54 },
-    { lat: 31.33, lng: 121.57 },
-    { lat: 31.38, lng: 121.60 }
-  ];
-
-  const riverSvgPath = useMemo(() => {
-    if (riverPoints.length === 0) return '';
-    const start = getXY(riverPoints[0].lat, riverPoints[0].lng);
-    let d = `M ${start.x} ${start.y}`;
-    for (let i = 1; i < riverPoints.length; i++) {
-      const pt = getXY(riverPoints[i].lat, riverPoints[i].lng);
-      d += ` L ${pt.x} ${pt.y}`;
-    }
-    return d;
-  }, []);
 
   if (currentPath === '/admin') {
     return (
