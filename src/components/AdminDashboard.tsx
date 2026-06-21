@@ -215,38 +215,52 @@ export default function AdminDashboard({
         return { hasLetter, hasDigits, hasHao, score };
       };
       
-      // 找到满足至少2个条件的行
-      for (const line of lines) {
-        const conditions = checkLineConditions(line);
-        if (conditions.score >= 2) {
-          idLine = line.trim();
-          // 从该行提取编号部分（去掉"号"字后面的内容）
-          const haoMatch = line.match(/([A-Za-z0-9-#]+)号/);
-          if (haoMatch) {
-            orderId = haoMatch[1];
-          } else {
-            // 如果没有"号"字，提取字母+数字组合
-            const idMatch = line.match(/[A-Za-z]?\d{3,}[A-Za-z0-9-#]*|[A-Za-z][A-Za-z0-9-#]*\d{3,}/);
-            if (idMatch) {
-              orderId = idMatch[0];
+      // 优先检查明确的编号格式（家教编号：xxx#yyy 格式）
+      const explicitIdMatch = block.match(/(?:家教编号|订单编号|编号)[:：\s]*([A-Za-z0-9-#]+)/i);
+      if (explicitIdMatch) {
+        orderId = explicitIdMatch[1];
+        const idLineIndex = lines.findIndex(line => line.match(/(家教编号|订单编号|编号)/));
+        if (idLineIndex >= 0) {
+          idLine = lines[idLineIndex].trim();
+        }
+      }
+      
+      // 如果没有找到明确格式，检查满足至少2个条件的行
+      if (!orderId) {
+        for (const line of lines) {
+          const conditions = checkLineConditions(line);
+          if (conditions.score >= 2) {
+            idLine = line.trim();
+            // 改进正则：支持"编号：xxx#"格式和"xxx号"格式
+            // 先尝试匹配"编号[:：]xxx#"
+            const explicitMatch = line.match(/编号[:：]\s*([A-Za-z0-9-#]+)/);
+            if (explicitMatch) {
+              orderId = explicitMatch[1];
             } else {
-              // 提取所有字母和数字组合
-              const allMatch = line.match(/[A-Za-z0-9-#]+/);
-              if (allMatch) {
-                orderId = allMatch[0];
+              // 尝试匹配"xxx号"格式
+              const haoMatch = line.match(/([A-Za-z0-9-#]+)号/);
+              if (haoMatch) {
+                orderId = haoMatch[1];
+              } else {
+                // 提取字母+数字组合（至少5位数字，避免匹配短数字如985211）
+                const idMatch = line.match(/[A-Za-z]?\d{5,}[A-Za-z0-9-#]*|[A-Za-z][A-Za-z0-9-#]*\d{5,}/);
+                if (idMatch) {
+                  orderId = idMatch[0];
+                }
               }
             }
+            break;
           }
-          break;
         }
       }
       
       // 如果仍然没有找到订单ID，尝试从标题行中提取（如"暑假单261101" → 261101）
       if (!orderId) {
         // 查找可能包含订单编号的标题行（如"暑假单261101"）
+        // 注意：只匹配8位以上数字，避免匹配短数字如"985211"
         const titlePatterns = [
-          /([A-Za-z\u4e00-\u9fa5]+)[^\d]*(\d{5,})/,  // 匹配"暑假单261101"
-          /(\d{5,})/,  // 直接匹配5位以上数字
+          /([A-Za-z\u4e00-\u9fa5]+)[^\d]*(\d{8,})/,  // 匹配"暑假单261101"（8位以上）
+          /(\d{8,})/,  // 直接匹配8位以上数字
         ];
         
         for (const line of lines) {
@@ -254,7 +268,7 @@ export default function AdminDashboard({
             const match = line.match(pattern);
             if (match) {
               // 取最后匹配的数字作为订单ID
-              const numMatch = line.match(/\d{5,}/);
+              const numMatch = line.match(/\d{8,}/);
               if (numMatch) {
                 orderId = numMatch[0];
                 idLine = line.trim();
@@ -273,18 +287,6 @@ export default function AdminDashboard({
         if (bracketIdMatch) {
           orderId = bracketIdMatch[1];
           const idLineIndex = lines.findIndex(line => line.includes('【'));
-          if (idLineIndex >= 0) {
-            idLine = lines[idLineIndex].trim();
-          }
-        }
-      }
-      
-      // If not found, check for explicit ID patterns (家教编号：xxx#yyy 格式)
-      if (!orderId) {
-        const explicitIdMatch = block.match(/(?:家教编号|订单编号|编号)[:：\s]*([A-Za-z0-9-#]+)/i);
-        if (explicitIdMatch) {
-          orderId = explicitIdMatch[1];
-          const idLineIndex = lines.findIndex(line => line.match(/(家教编号|订单编号|编号)/));
           if (idLineIndex >= 0) {
             idLine = lines[idLineIndex].trim();
           }
