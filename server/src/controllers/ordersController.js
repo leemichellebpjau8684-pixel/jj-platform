@@ -144,8 +144,64 @@ function validateOrderData(data, isUpdate = false) {
   return errors;
 }
 
+// 教育阶段映射：将非标准值映射到标准值
+function normalizeEducationStage(stage) {
+  if (!stage) return stage;
+  const stageMap = {
+    '其他': '幼儿',
+    '学前': '幼儿',
+    '幼儿园': '幼儿',
+    '幼教': '幼儿',
+    '一年级': '小学',
+    '二年级': '小学',
+    '三年级': '小学',
+    '四年级': '小学',
+    '五年级': '小学',
+    '六年级': '小学',
+    '初一': '初中',
+    '初二': '初中',
+    '初三': '初中',
+    '高一': '高中',
+    '高二': '高中',
+    '高三': '高中',
+    '大一': '大学',
+    '大二': '大学',
+    '大三': '大学',
+    '大四': '大学',
+  };
+  if (VALID_EDUCATION_STAGES.includes(stage)) {
+    return stage;
+  }
+  return stageMap[stage] || stage; // 返回原始值，让校验捕获
+}
+
+// 教学类型映射
+function normalizeTeachingType(type) {
+  if (!type) return type;
+  const typeMap = {
+    '线上': '网课',
+    '网络': '网课',
+    '上门家教': '上门',
+    '家教': '上门',
+    '都可以': '均可',
+    '都行': '均可',
+  };
+  if (VALID_TEACHING_TYPES.includes(type)) {
+    return type;
+  }
+  return typeMap[type] || type;
+}
+
 async function createOrder(req, res) {
   try {
+    // 数据标准化
+    if (req.body.education_stage) {
+      req.body.education_stage = normalizeEducationStage(req.body.education_stage);
+    }
+    if (req.body.teaching_type) {
+      req.body.teaching_type = normalizeTeachingType(req.body.teaching_type);
+    }
+    
     const errors = validateOrderData(req.body);
     if (errors.length > 0) {
       return res.status(400).json({
@@ -187,6 +243,14 @@ async function createOrder(req, res) {
 
 async function updateOrder(req, res) {
   try {
+    // 数据标准化
+    if (req.body.education_stage) {
+      req.body.education_stage = normalizeEducationStage(req.body.education_stage);
+    }
+    if (req.body.teaching_type) {
+      req.body.teaching_type = normalizeTeachingType(req.body.teaching_type);
+    }
+    
     const store = getStore();
     const { id } = req.params;
     
