@@ -194,11 +194,6 @@ function normalizeTeachingType(type) {
 
 async function createOrder(req, res) {
   try {
-    console.log('=== Create Order Debug ===');
-    console.log('Raw body:', JSON.stringify(req.body));
-    console.log('education_stage:', req.body.education_stage, typeof req.body.education_stage);
-    console.log('teaching_type:', req.body.teaching_type, typeof req.body.teaching_type);
-    
     // 数据标准化
     if (req.body.education_stage) {
       req.body.education_stage = normalizeEducationStage(req.body.education_stage);
@@ -206,10 +201,6 @@ async function createOrder(req, res) {
     if (req.body.teaching_type) {
       req.body.teaching_type = normalizeTeachingType(req.body.teaching_type);
     }
-    
-    console.log('After normalization:');
-    console.log('education_stage:', req.body.education_stage);
-    console.log('teaching_type:', req.body.teaching_type);
     
     const errors = validateOrderData(req.body);
     if (errors.length > 0) {
