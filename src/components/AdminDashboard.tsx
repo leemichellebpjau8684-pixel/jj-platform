@@ -12,7 +12,7 @@ import { api } from '../services/api';
 // 从raw_content中提取订单编号
 function extractOrderNo(rawContent: string | undefined): string {
   if (!rawContent) return '';
-  const match = rawContent.match(/(?:家教编号[：:]\s*)?([A-Z]{2}\d{8}|\d{8,})/i);
+  const match = rawContent.match(/(?:家教编号[：:]\s*)?([A-Z]{2}\d{6,}|\d{6,}|[A-Za-z]?\d{3,}[A-Za-z0-9-#]*|[A-Za-z][A-Za-z0-9-#]*\d{3,})/i);
   if (match) {
     return match[1].toUpperCase();
   }
@@ -594,6 +594,17 @@ export default function AdminDashboard({
           /(\d{2,5})\s*元\s*\/\s*2h/i,          // xx元/2h
           /(\d{2,5})\s*元\s*2\s*小时/i,         // xx元2小时
           /(\d{2,5})\s*元\s*两\s*小时/i,        // xx元两小时
+          /(\d{2,5})\s*两\s*小时/i,             // xx两小时
+          /(\d{2,5})\s*2\s*小时/i,              // xx2小时
+          /(\d{2,5})\s*\/\s*1\.5h/i,            // xx/1.5h
+          /(\d{2,5})\s*元\s*\/\s*1\.5h/i,       // xx元/1.5h
+          /(\d{2,5})\s*元\s*1\.5\s*小时/i,      // xx元1.5小时
+          /(\d{2,5})\s*元\s*一点五\s*小时/i,    // xx元一点五小时
+          /(\d{2,5})\s*1\.5\s*小时/i,           // xx1.5小时
+          /(\d{2,5})\s*元\s*\/\s*次/i,          // xx元/次
+          /(\d{2,5})\s*\/\s*次/i,               // xx/次
+          /(\d{2,5})\s*元\s*一?次/i,            // xx元一次 / xx元次
+          /(\d{2,5})\s*一?次/i,                 // xx一次 / xx次
           /(\d{2,5})\s*元\s*一?次课/i,          // xx元一次课 / xx元次课
           /(\d{2,5})\s*\/\s*课/i,               // xx/课
           /(\d{2,5})\s*元\s*\/\s*课/i,          // xx元/课
@@ -611,12 +622,16 @@ export default function AdminDashboard({
             // Extract the full match for display
             const fullMatchStr = match[0];
             // Clean up and format the display text
-            if (fullMatchStr.includes('/h') && !fullMatchStr.includes('/2h')) {
+            if (fullMatchStr.includes('/h') && !fullMatchStr.includes('/2h') && !fullMatchStr.includes('/1.5h')) {
               priceTextDisplay = `${match[1]}/h`;
             } else if (fullMatchStr.includes('/2h')) {
               // xx/2h or xx元/2h - convert to hourly rate
               priceTextDisplay = `${match[1]}/2h`;
               priceRate = Math.round(priceRate / 2);
+            } else if (fullMatchStr.includes('/1.5h') || fullMatchStr.includes('1.5小时') || fullMatchStr.includes('一点五小时')) {
+              // xx/1.5h, xx元/1.5h, xx元1.5小时, xx元一点五小时 - convert to hourly rate
+              priceTextDisplay = `${match[1]}/1.5h`;
+              priceRate = Math.round(priceRate / 1.5);
             } else if (fullMatchStr.includes('2小时') || fullMatchStr.includes('两小时')) {
               // xx元2小时 or xx元两小时 - convert to hourly rate
               priceTextDisplay = `${match[1]}元/2h`;
@@ -627,8 +642,11 @@ export default function AdminDashboard({
             } else if (fullMatchStr.includes('/天')) {
               priceTextDisplay = `${match[1]}/天`;
               priceRate = Math.round(priceRate / 8);
-            } else if (fullMatchStr.includes('/课') || fullMatchStr.includes('次课') || fullMatchStr.includes('节课')) {
-              // xx/课, xx元/课, xx元一次课, xx元一节课
+            } else if (fullMatchStr.includes('/次') || fullMatchStr.includes('一次') || fullMatchStr.includes('次课')) {
+              // xx/次, xx元/次, xx元一次, xx一次, xx元一次课
+              priceTextDisplay = `${match[1]}元/次`;
+            } else if (fullMatchStr.includes('/课') || fullMatchStr.includes('节课')) {
+              // xx/课, xx元/课, xx元一节课
               priceTextDisplay = `${match[1]}元/课`;
             } else if (fullMatchStr.includes('元')) {
               // Default to hourly if only "元" is present
@@ -1238,7 +1256,7 @@ export default function AdminDashboard({
   const filteredArchives = useMemo(() => {
     return archives.filter(item => {
       const matchKeyword = !archiveSearchKeyword ||
-        (item.order_no || extractOrderNo(item.rawContent) || item.orderId || item.id).toLowerCase().includes(archiveSearchKeyword.toLowerCase()) ||
+        (extractOrderNo(item.rawContent) || item.order_no || item.orderId || item.id).toLowerCase().includes(archiveSearchKeyword.toLowerCase()) ||
         item.studentDesc.toLowerCase().includes(archiveSearchKeyword.toLowerCase()) ||
         item.address.toLowerCase().includes(archiveSearchKeyword.toLowerCase());
       const matchDistrict = archiveSearchDistrict === '全部' || item.district === archiveSearchDistrict;
@@ -1490,8 +1508,8 @@ export default function AdminDashboard({
             className="px-2 md:px-4 py-1.5 bg-neutral-800 border border-neutral-700 hover:bg-neutral-700 text-xs text-neutral-300 font-bold rounded-lg transition-colors flex items-center gap-1.5"
           >
             <X className="w-3.5 h-3.5 text-neutral-400" />
-            <span className="hidden md:inline">返回教员前台</span>
-            <span className="md:hidden text-[10px]">返回</span>
+            <span className="hidden md:inline">返回用户端</span>
+            <span className="md:hidden text-[10px]">返回用户端</span>
           </button>
         </div>
       </header>
@@ -1779,7 +1797,7 @@ export default function AdminDashboard({
                         {/* Order core indicators */}
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className="text-[10px] text-neutral-400 font-mono tracking-tight font-bold">{item.order_no || extractOrderNo(item.rawContent) || item.orderId || item.id}</span>
+                            <span className="text-[10px] text-neutral-400 font-mono tracking-tight font-bold">{extractOrderNo(item.rawContent) || item.order_no || item.orderId || item.id}</span>
                             {isDistrictMissing ? (
                               <span className="text-[8.5px] bg-red-950/80 text-red-400 border border-red-900 font-bold px-1 rounded animate-pulse">
                                 ⚠️ 行政区未识别
@@ -2131,7 +2149,7 @@ export default function AdminDashboard({
                               )}
                             </div>
                             <div className="flex-1">
-                              <span className="font-mono font-bold text-neutral-400 text-xs">{item.order_no || extractOrderNo(item.rawContent) || item.orderId || item.id}</span>
+                              <span className="font-mono font-bold text-neutral-400 text-xs">{extractOrderNo(item.rawContent) || item.order_no || item.orderId || item.id}</span>
                             </div>
                           </div>
 
@@ -2200,7 +2218,7 @@ export default function AdminDashboard({
                           </div>
 
                           {/* ID */}
-                          <span className="w-24 font-mono font-bold text-neutral-400 text-xs">{item.order_no || extractOrderNo(item.rawContent) || item.orderId || item.id}</span>
+                          <span className="w-24 font-mono font-bold text-neutral-400 text-xs">{extractOrderNo(item.rawContent) || item.order_no || item.orderId || item.id}</span>
 
                           {/* District */}
                           <span className="w-20 text-center">
@@ -2401,7 +2419,7 @@ export default function AdminDashboard({
                   ) : (
                     paginatedArchives.map(item => {
                       const isChecked = selectedArchiveIds.includes(item.id);
-                      const displayId = item.order_no || extractOrderNo(item.rawContent) || item.orderId || item.id;
+                      const displayId = extractOrderNo(item.rawContent) || item.order_no || item.orderId || item.id;
                       return (
                         <div
                           key={item.id}
@@ -2439,7 +2457,7 @@ export default function AdminDashboard({
                           {/* Mobile card style */}
                           <div className="w-full">
                             <div className="flex flex-wrap items-center gap-2 mb-1.5">
-                              <span className="font-mono font-bold text-neutral-400 select-all text-[10px] tracking-tight font-bold">{item.order_no || extractOrderNo(item.rawContent) || item.orderId || item.id}</span>
+                              <span className="font-mono font-bold text-neutral-400 select-all text-[10px] tracking-tight font-bold">{extractOrderNo(item.rawContent) || item.order_no || item.orderId || item.id}</span>
                               <span className="bg-neutral-800 text-neutral-450 border border-neutral-750 px-1.5 py-0.5 rounded text-[9px] font-bold">
                                 {item.district || '未识别'}
                               </span>
