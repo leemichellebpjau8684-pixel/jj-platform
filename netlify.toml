@@ -11,4 +11,4 @@
   status = 200
 
 [context.production.environment]
-  VITE_API_URL = "https://jj-platform-production.up.railway.app"
+  VITE_API_URL = "https://jj-platform-production.up.railway.app"  # 如需完全从环境变量读取，删除此行并到 Netlify Dashboard 设置

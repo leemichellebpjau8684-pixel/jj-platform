@@ -1,5 +1,7 @@
 const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
 
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
+
 async function test() {
   console.log('=== API测试 ===\n');
   
@@ -18,7 +20,7 @@ async function login() {
     const response = await fetch('http://localhost:3001/api/admin/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: 'admin', password: '123' })
+      body: JSON.stringify({ username: 'admin', password: ADMIN_PASSWORD })
     });
     const data = await response.json();
     console.log('1. 管理员登录:', data.success ? '成功' : '失败');

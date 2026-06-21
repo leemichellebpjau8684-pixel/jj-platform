@@ -166,7 +166,7 @@ const memoryStore = {
     create: (data) => {
       const newOrder = {
         id: generateId(),
-        order_no: generateOrderNo(),
+        order_no: (data.order_no === undefined || data.order_no === null) ? generateOrderNo() : data.order_no,
         status: 'draft',
         contact_status: 'new',
         view_count: 0,

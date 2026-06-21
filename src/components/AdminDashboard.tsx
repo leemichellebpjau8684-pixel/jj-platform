@@ -380,7 +380,7 @@ export default function AdminDashboard({
       // If not clearly identified, default to empty to highlight the red visual error later!
       
       // 3. Subject & Grade
-      let mathGrade = '初中';
+      let mathGrade = '其他';
       let gradeDetail = '';
       
       // Check for age patterns like "xx岁" where xx < 10
@@ -1170,7 +1170,45 @@ export default function AdminDashboard({
     setShowArchiveReactivateConfirm(false);
     
     if (successCount > 0) {
-      fetchAdminOrders();
+      try {
+        const serverOrders = await api.getOrders();
+        const transformedOrders = serverOrders.map((order: any) => ({
+          id: order.id,
+          order_no: order.order_no,
+          district: order.district,
+          grade: order.education_stage + (order.grade_detail ? ` ${order.grade_detail}` : ''),
+          gradeDetail: order.grade_detail,
+          subject: order.subject,
+          coordinate: {
+            lat: order.latitude || 31.2304,
+            lng: order.longitude || 121.4737
+          },
+          studentDesc: order.title || '学员信息待完善',
+          studentDetail: order.raw_content || order.requirements || '暂无详细信息',
+          frequency: '每周2次，每次2小时',
+          address: order.address,
+          requirements: order.requirements || '男女教员均可',
+          price: order.salary_max || order.salary_min || 0,
+          priceMin: order.salary_min,
+          priceMax: order.salary_max,
+          priceText: order.salary_min && order.salary_max 
+            ? (order.salary_min === order.salary_max 
+                ? `${order.salary_min}/h` 
+                : `${order.salary_min}-${order.salary_max}/h`) 
+            : (order.salary_min ? `${order.salary_min}/h` : '面议'),
+          isHighPrice: (order.salary_max || order.salary_min || 0) >= 120,
+          isOnline: order.teaching_type === '网课',
+          isCollegeStudent: true,
+          isNegotiable: !order.salary_min && !order.salary_max,
+          contactTeacher: 'Ken06103',
+          publishTime: order.published_at || order.created_at || new Date().toISOString(),
+          rawContent: order.raw_content || '',
+          idLine: `家教编号：${order.order_no}`
+        }));
+        setOrders(transformedOrders);
+      } catch (err) {
+        console.error('重新加载订单失败:', err);
+      }
       triggerAlert(`成功重新上架 ${successCount} 个订单！已恢复到在售列表。`, 'success');
     } else {
       triggerAlert('重新上架失败，请稍后重试！', 'error');
@@ -1199,7 +1237,7 @@ export default function AdminDashboard({
   const filteredArchives = useMemo(() => {
     return archives.filter(item => {
       const matchKeyword = !archiveSearchKeyword ||
-        (item.order_no || extractOrderNo(item.raw_content) || item.orderId || item.id).toLowerCase().includes(archiveSearchKeyword.toLowerCase()) ||
+        (item.order_no || extractOrderNo(item.rawContent) || item.orderId || item.id).toLowerCase().includes(archiveSearchKeyword.toLowerCase()) ||
         item.studentDesc.toLowerCase().includes(archiveSearchKeyword.toLowerCase()) ||
         item.address.toLowerCase().includes(archiveSearchKeyword.toLowerCase());
       const matchDistrict = archiveSearchDistrict === '全部' || item.district === archiveSearchDistrict;
@@ -1740,7 +1778,7 @@ export default function AdminDashboard({
                         {/* Order core indicators */}
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className="text-[10px] text-neutral-400 font-mono tracking-tight font-bold">{item.order_no || extractOrderNo(item.raw_content) || item.orderId || item.id}</span>
+                            <span className="text-[10px] text-neutral-400 font-mono tracking-tight font-bold">{item.order_no || extractOrderNo(item.rawContent) || item.orderId || item.id}</span>
                             {isDistrictMissing ? (
                               <span className="text-[8.5px] bg-red-950/80 text-red-400 border border-red-900 font-bold px-1 rounded animate-pulse">
                                 ⚠️ 行政区未识别
@@ -2092,7 +2130,7 @@ export default function AdminDashboard({
                               )}
                             </div>
                             <div className="flex-1">
-                              <span className="font-mono font-bold text-neutral-400 text-xs">{item.order_no || extractOrderNo(item.raw_content) || item.orderId || item.id}</span>
+                              <span className="font-mono font-bold text-neutral-400 text-xs">{item.order_no || extractOrderNo(item.rawContent) || item.orderId || item.id}</span>
                             </div>
                           </div>
 
@@ -2161,7 +2199,7 @@ export default function AdminDashboard({
                           </div>
 
                           {/* ID */}
-                          <span className="w-24 font-mono font-bold text-neutral-400 text-xs">{item.order_no || extractOrderNo(item.raw_content) || item.orderId || item.id}</span>
+                          <span className="w-24 font-mono font-bold text-neutral-400 text-xs">{item.order_no || extractOrderNo(item.rawContent) || item.orderId || item.id}</span>
 
                           {/* District */}
                           <span className="w-20 text-center">
@@ -2362,7 +2400,7 @@ export default function AdminDashboard({
                   ) : (
                     paginatedArchives.map(item => {
                       const isChecked = selectedArchiveIds.includes(item.id);
-                      const displayId = item.order_no || extractOrderNo(item.raw_content) || item.orderId || item.id;
+                      const displayId = item.order_no || extractOrderNo(item.rawContent) || item.orderId || item.id;
                       return (
                         <div
                           key={item.id}
@@ -2400,7 +2438,7 @@ export default function AdminDashboard({
                           {/* Mobile card style */}
                           <div className="w-full">
                             <div className="flex flex-wrap items-center gap-2 mb-1.5">
-                              <span className="font-mono font-bold text-neutral-400 select-all text-[10px] tracking-tight font-bold">{item.order_no || extractOrderNo(item.raw_content) || item.orderId || item.id}</span>
+                              <span className="font-mono font-bold text-neutral-400 select-all text-[10px] tracking-tight font-bold">{item.order_no || extractOrderNo(item.rawContent) || item.orderId || item.id}</span>
                               <span className="bg-neutral-800 text-neutral-450 border border-neutral-750 px-1.5 py-0.5 rounded text-[9px] font-bold">
                                 {item.district || '未识别'}
                               </span>

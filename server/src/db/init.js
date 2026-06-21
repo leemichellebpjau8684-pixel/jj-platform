@@ -44,14 +44,15 @@ async function initDatabase() {
     console.log('✅ 表结构创建成功');
 
     // 创建默认管理员账户
-    const passwordHash = await bcrypt.hash('admin123', 10);
+    const adminPassword = process.env.ADMIN_PASSWORD || 'admin123';
+    const passwordHash = await bcrypt.hash(adminPassword, 10);
     await pool.query(
       `INSERT INTO admins (username, password_hash, nickname)
        VALUES ($1, $2, $3)
        ON CONFLICT (username) DO NOTHING`,
       ['admin', passwordHash, '平台管理员']
     );
-    console.log('✅ 管理员账户创建成功 (admin / admin123)');
+    console.log(`✅ 管理员账户创建成功 (admin / ${adminPassword})`);
 
     console.log('🎉 数据库初始化完成！');
     process.exit(0);
