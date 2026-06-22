@@ -12,9 +12,21 @@ import { api } from '../services/api';
 // 从raw_content中提取订单编号
 function extractOrderNo(rawContent: string | undefined): string {
   if (!rawContent) return '';
-  const match = rawContent.match(/(?:家教编号[：:]\s*)?([A-Z]{2}\d{6,}|\d{6,}|[A-Za-z]?\d{3,}[A-Za-z0-9-#]*|[A-Za-z][A-Za-z0-9-#]*\d{3,})/i);
-  if (match) {
-    return match[1].toUpperCase();
+  const explicitMatch = rawContent.match(/(家教编号|订单编号|编号)[：:]\s*([A-Za-z0-9-#]+)/i);
+  if (explicitMatch) {
+    return explicitMatch[2].toUpperCase().replace(/#.*$/, '');
+  }
+  const idMatch = rawContent.match(/[^\w](SH|JJ)\d{6,}[A-Za-z0-9-]*/i);
+  if (idMatch) {
+    return idMatch[0].trim().toUpperCase();
+  }
+  const numMatch = rawContent.match(/[^\w](\d{6,})[^\w]/);
+  if (numMatch) {
+    return numMatch[1];
+  }
+  const simpleMatch = rawContent.match(/\b(\d{6,})\b/);
+  if (simpleMatch) {
+    return simpleMatch[1];
   }
   return '';
 }
@@ -833,14 +845,16 @@ export default function AdminDashboard({
       setSelectedDraftId(successfullyCreated[0]?.id || null);
       
       if (failedBlocks.length > 0) {
-        alertMessage = `成功解析 ${successfullyCreated.length} 个订单！${failedBlocks.length} 个订单解析失败（内容已保留在下方框中）`;
+        const errorDetails = failedBlocks.map(f => f.reason).join('; ');
+        alertMessage = `成功解析 ${successfullyCreated.length} 个订单！${failedBlocks.length} 个失败：${errorDetails}`;
         alertType = 'info';
       } else {
         alertMessage = `成功智能拆单解析 ${successfullyCreated.length} 个草稿订单！`;
         alertType = 'success';
       }
     } else {
-      alertMessage = '所有订单创建失败，请检查数据格式';
+      const errorDetails = failedBlocks.map(f => f.reason).join('; ');
+      alertMessage = `所有订单创建失败：${errorDetails}`;
       alertType = 'error';
     }
     
@@ -1239,7 +1253,16 @@ export default function AdminDashboard({
   // Filtering on-sale orders list
   const filteredOnline = useMemo(() => {
     return orders.filter(o => {
-      if (onlineSearchId && !o.id.toLowerCase().includes(onlineSearchId.toLowerCase())) return false;
+      if (onlineSearchId) {
+        const searchLower = onlineSearchId.toLowerCase();
+        const orderNo = (o.order_no || '').toLowerCase();
+        const orderId = (o.orderId || '').toLowerCase();
+        const rawNo = extractOrderNo(o.rawContent).toLowerCase();
+        const id = o.id.toLowerCase();
+        if (!orderNo.includes(searchLower) && !orderId.includes(searchLower) && !rawNo.includes(searchLower) && !id.includes(searchLower)) {
+          return false;
+        }
+      }
       if (onlineSearchDistrict !== '全部' && o.district !== onlineSearchDistrict) return false;
       if (onlineSearchSubject !== '全部' && o.subject !== onlineSearchSubject) return false;
       return true;

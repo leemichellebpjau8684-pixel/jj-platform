@@ -44,7 +44,11 @@ async function initDatabase() {
     console.log('✅ 表结构创建成功');
 
     // 创建默认管理员账户
-    const adminPassword = process.env.ADMIN_PASSWORD || 'admin123';
+    const adminPassword = process.env.ADMIN_PASSWORD;
+    if (!adminPassword) {
+      console.error('❌ 环境变量 ADMIN_PASSWORD 未设置');
+      throw new Error('ADMIN_PASSWORD environment variable is required');
+    }
     const passwordHash = await bcrypt.hash(adminPassword, 10);
     await pool.query(
       `INSERT INTO admins (username, password_hash, nickname)
@@ -52,7 +56,7 @@ async function initDatabase() {
        ON CONFLICT (username) DO NOTHING`,
       ['admin', passwordHash, '平台管理员']
     );
-    console.log(`✅ 管理员账户创建成功 (admin / ${adminPassword})`);
+    console.log('✅ 管理员账户创建成功 (admin)');
 
     console.log('🎉 数据库初始化完成！');
     process.exit(0);

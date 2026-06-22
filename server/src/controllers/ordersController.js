@@ -1,6 +1,6 @@
 const { getStore } = require('../db/adapter');
 
-const VALID_EDUCATION_STAGES = ['幼儿', '小学', '初中', '高中', '大学', '成人'];
+const VALID_EDUCATION_STAGES = ['幼儿', '小学', '初中', '高中', '大学', '成人', '其他'];
 const VALID_TEACHING_TYPES = ['上门', '网课', '均可'];
 const VALID_CONTACT_STATUSES = ['new', 'contacted', 'completed', 'expired'];
 const MAX_PAGE_LIMIT = 100;

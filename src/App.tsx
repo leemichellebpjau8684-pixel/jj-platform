@@ -451,8 +451,10 @@ export default function App() {
     prevActiveTabRef.current = activeTab;
   }, [activeTab]);
 
-  // Geocode all order addresses upon startup to match Shanghai's precise coordinates
+  // Geocode all order addresses when orders are loaded
   useEffect(() => {
+    if (orders.length === 0) return;
+    
     loadAMapScript()
       .then(() => {
         const AMap = (window as any).AMap;
@@ -483,7 +485,7 @@ export default function App() {
       .catch((err) => {
         console.error('AMap load during app setup failed:', err);
       });
-  }, []);
+  }, [orders]);
 
   // Filter States
   const [tempDistricts, setTempDistricts] = useState<string[]>([]);

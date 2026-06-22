@@ -119,6 +119,11 @@ async function initStore() {
             }
           }
           
+          if (fields.length === 0) {
+            const result = await pool.query('SELECT * FROM orders WHERE id = $1', [id]);
+            return result.rows[0] || null;
+          }
+          
           values.push(id);
           
           const result = await pool.query(
@@ -180,7 +185,12 @@ async function initStore() {
     
     console.log('✅ PostgreSQL数据库连接成功');
   } catch (err) {
-    console.log('⚠️ PostgreSQL连接失败，使用内存存储模式');
+    console.error('❌ PostgreSQL连接失败:', err.message);
+    if (process.env.NODE_ENV === 'production') {
+      console.error('❌ 生产环境数据库连接失败，服务退出');
+      process.exit(1);
+    }
+    console.log('⚠️ 开发环境使用内存存储模式');
     store = memoryStore;
   }
 }
