@@ -238,7 +238,7 @@ async function createOrder(req, res) {
     console.error('请求数据:', JSON.stringify(req.body));
     res.status(500).json({
       success: false,
-      error: '创建订单失败',
+      error: `创建订单失败：${err.message}`,
       details: err.message,
       timestamp: new Date().toISOString()
     });

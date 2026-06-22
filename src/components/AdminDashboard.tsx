@@ -205,7 +205,7 @@ export default function AdminDashboard({
     }
 
     const parsedList: Order[] = [];
-    const failedBlocks: { block: string; reason: string }[] = [];
+    const failedBlocks: { block: string; reason: string; orderNo?: string }[] = [];
     const now = new Date();
     const timestampStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
 
@@ -360,35 +360,29 @@ export default function AdminDashboard({
       // 2. Area/District
       let area = '';
       
-      // Check for online tutoring first
-      if (block.includes('线上') || block.includes('网课') || block.includes('远程') || block.includes('视频')) {
-        area = '线上';
-      } else {
-        // Try to match full district name (with "区" suffix)
-        for (const d of SHANGHAI_DISTRICTS) {
-          if (block.includes(d)) {
+      // First, try to match full district name (with "区" suffix)
+      for (const d of SHANGHAI_DISTRICTS) {
+        if (d !== '线上' && block.includes(d)) {
+          area = d;
+          break;
+        }
+      }
+      
+      // If not found, try to match without "区" suffix (e.g., "长宁" -> "长宁区")
+      if (!area) {
+        const sortedDistricts = [...SHANGHAI_DISTRICTS].filter(d => d !== '线上').sort((a, b) => b.length - a.length);
+        for (const d of sortedDistricts) {
+          const shortName = d.replace('区', '');
+          if (shortName && block.includes(shortName)) {
             area = d;
             break;
           }
         }
-        
-        // If not found, try to match without "区" suffix (e.g., "长宁" -> "长宁区")
-        // Priority: longer matches first (e.g., "浦东新区" before "浦东")
-        if (!area) {
-          const sortedDistricts = [...SHANGHAI_DISTRICTS].filter(d => d !== '线上').sort((a, b) => b.length - a.length);
-          for (const d of sortedDistricts) {
-            const shortName = d.replace('区', '');
-            if (shortName && block.includes(shortName)) {
-              area = d;
-              break;
-            }
-          }
-        }
-        
-        // Special handling for "浦东" -> "浦东新区"
-        if (!area && (block.includes('浦东') || block.includes('陆家嘴') || block.includes('张江') || block.includes('金桥') || block.includes('外高桥') || block.includes('南汇'))) {
-          area = '浦东新区';
-        }
+      }
+      
+      // Special handling for "浦东" -> "浦东新区"
+      if (!area && (block.includes('浦东') || block.includes('陆家嘴') || block.includes('张江') || block.includes('金桥') || block.includes('外高桥') || block.includes('南汇'))) {
+        area = '浦东新区';
       }
       
       // If not clearly identified, default to empty to highlight the red visual error later!
@@ -830,9 +824,9 @@ export default function AdminDashboard({
           order_no: draft.order_no || draft.orderId
         });
         console.error('后端响应:', err.response?.data);
-        // 添加到失败列表
         const errorMsg = err.response?.data?.error || (err.response?.data?.errors?.join ? err.response?.data.errors.join(', ') : err.response?.data?.errors) || err.message || '创建订单失败';
-        failedBlocks.push({ block: draft.rawContent, reason: `创建失败：${errorMsg}` });
+        const orderNo = draft.order_no || draft.orderId || extractOrderNo(draft.rawContent) || '未知编号';
+        failedBlocks.push({ block: draft.rawContent, orderNo, reason: errorMsg });
       }
     }
 
@@ -845,23 +839,27 @@ export default function AdminDashboard({
       setSelectedDraftId(successfullyCreated[0]?.id || null);
       
       if (failedBlocks.length > 0) {
-        const errorDetails = failedBlocks.map(f => f.reason).join('; ');
-        alertMessage = `成功解析 ${successfullyCreated.length} 个订单！${failedBlocks.length} 个失败：${errorDetails}`;
+        const failedNos = failedBlocks.map(f => f.orderNo).join('、');
+        const errorDetails = failedBlocks.map(f => `${f.orderNo}(${f.reason})`).join('；');
+        alertMessage = `成功解析 ${successfullyCreated.length} 个订单！家教编号${failedNos}由于以下原因创建失败：${errorDetails}，请检查修改后重试`;
         alertType = 'info';
       } else {
         alertMessage = `成功智能拆单解析 ${successfullyCreated.length} 个草稿订单！`;
         alertType = 'success';
       }
     } else {
-      const errorDetails = failedBlocks.map(f => f.reason).join('; ');
-      alertMessage = `所有订单创建失败：${errorDetails}`;
+      const failedNos = failedBlocks.map(f => f.orderNo).join('、');
+      const errorDetails = failedBlocks.map(f => `${f.orderNo}(${f.reason})`).join('；');
+      alertMessage = `家教编号${failedNos}创建失败：${errorDetails}，请检查修改后重试`;
       alertType = 'error';
     }
     
     triggerAlert(alertMessage, alertType);
 
-    // 如果全部成功，清空粘贴框；失败时不清空，保留原始输入供用户修改
-    if (failedBlocks.length === 0) {
+    // 如果有失败的订单，只保留失败的内容在粘贴框；全部成功时清空
+    if (failedBlocks.length > 0) {
+      setRawText(failedBlocks.map(f => f.block).join('\n\n'));
+    } else {
       setRawText('');
     }
   };
