@@ -76,7 +76,45 @@ async function verify(req, res) {
   }
 }
 
+async function updatePassword(req, res) {
+  try {
+    const { newPassword } = req.body;
+    
+    if (!newPassword || newPassword.length < 6) {
+      return res.status(400).json({
+        success: false,
+        error: '新密码至少需要6个字符'
+      });
+    }
+    
+    const store = getStore();
+    const admin = await store.admins.getByUsername('admin');
+    
+    if (!admin) {
+      return res.status(404).json({
+        success: false,
+        error: '管理员不存在'
+      });
+    }
+    
+    const password_hash = await bcrypt.hash(newPassword, 10);
+    await store.admins.updatePassword(admin.id, password_hash);
+    
+    res.json({
+      success: true,
+      message: '密码更新成功'
+    });
+  } catch (err) {
+    console.error('更新密码失败:', err.message);
+    res.status(500).json({
+      success: false,
+      error: '更新密码失败'
+    });
+  }
+}
+
 module.exports = {
   login,
-  verify
+  verify,
+  updatePassword
 };

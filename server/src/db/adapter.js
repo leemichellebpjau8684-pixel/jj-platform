@@ -180,6 +180,9 @@ async function initStore() {
         },
         updateLastLogin: async (id) => {
           await pool.query('UPDATE admins SET last_login_at = NOW() WHERE id = $1', [id]);
+        },
+        updatePassword: async (id, password_hash) => {
+          await pool.query('UPDATE admins SET password_hash = $1 WHERE id = $2', [password_hash, id]);
         }
       },
       analytics: {
