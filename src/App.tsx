@@ -2064,6 +2064,29 @@ export default function App() {
                 })
               )}
 
+              {/* Pagination Controls */}
+              {activeTab === 'list' && filteredOrders.length > 0 && (
+                <div className="flex items-center justify-center gap-3 py-3 border-t border-gray-200 bg-white shrink-0 shadow-sm">
+                  <button
+                    onClick={() => setListPage(p => Math.max(1, p - 1))}
+                    disabled={listPage === 1 || totalListPages <= 1}
+                    className="px-4 py-2 text-sm font-bold text-gray-600 hover:text-orange-500 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors rounded-lg"
+                  >
+                    上一页
+                  </button>
+                  <span className="px-4 py-2 text-sm font-bold text-orange-600 bg-orange-50 rounded-lg border border-orange-200">
+                    第 {listPage} 页 / 共 {totalListPages || 1} 页
+                  </span>
+                  <button
+                    onClick={() => setListPage(p => Math.min(totalListPages || 1, p + 1))}
+                    disabled={listPage >= (totalListPages || 1)}
+                    className="px-4 py-2 text-sm font-bold text-gray-600 hover:text-orange-500 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors rounded-lg"
+                  >
+                    下一页
+                  </button>
+                </div>
+              )}
+
             </section>
 
             {/* RIGHT SIDE: ORDER DETAIL PANEL - PC only, 40% width */}
@@ -2235,29 +2258,6 @@ export default function App() {
                 <div className="flex-1 flex flex-col items-center justify-center p-6 text-center text-gray-400">
                   <SlidersHorizontal className="w-8 h-8 text-neutral-300 animate-pulse mb-2" />
                   <span className="text-xs">请从左侧订单列表中选中一个订单以查看其完整详细需求书</span>
-                </div>
-              )}
-
-              {/* Pagination Controls */}
-              {activeTab === 'list' && (
-                <div className="flex items-center justify-center gap-2 py-3 border-t border-gray-200 bg-white shrink-0">
-                  <button
-                    onClick={() => setListPage(p => Math.max(1, p - 1))}
-                    disabled={listPage === 1 || totalListPages <= 1}
-                    className="px-3 py-1.5 text-sm font-bold text-gray-600 hover:text-orange-500 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                  >
-                    上一页
-                  </button>
-                  <span className="px-3 py-1.5 text-sm font-bold text-orange-500 bg-orange-50 rounded">
-                    {listPage} / {totalListPages || 1}
-                  </span>
-                  <button
-                    onClick={() => setListPage(p => Math.min(totalListPages || 1, p + 1))}
-                    disabled={listPage >= (totalListPages || 1)}
-                    className="px-3 py-1.5 text-sm font-bold text-gray-600 hover:text-orange-500 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                  >
-                    下一页
-                  </button>
                 </div>
               )}
 
