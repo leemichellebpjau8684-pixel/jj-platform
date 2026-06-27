@@ -119,15 +119,13 @@ class ApiService {
     return response.json();
   }
 
-  // 用户端接口
   async getOrders(): Promise<Order[]> {
-    const response = await this.request<OrdersResponse>('/api/orders');
+    const response = await this.request<OrdersResponse>('/orders');
     return response.orders || [];
   }
 
-  // 管理员接口
   async login(username: string, password: string): Promise<LoginResponse> {
-    const response = await this.request<LoginResponse>('/api/admin/login', {
+    const response = await this.request<LoginResponse>('/admin/login', {
       method: 'POST',
       body: JSON.stringify({ username, password }),
     });
@@ -146,7 +144,7 @@ class ApiService {
   async verifyToken(): Promise<boolean> {
     if (!this.token) return false;
     try {
-      await this.request('/api/admin/verify');
+      await this.request('/admin/verify');
       return true;
     } catch {
       this.clearToken();
@@ -164,12 +162,12 @@ class ApiService {
     if (params.limit) searchParams.set('limit', String(params.limit));
 
     const query = searchParams.toString();
-    const response = await this.request<OrdersResponse>(`/api/admin/orders${query ? `?${query}` : ''}`);
+    const response = await this.request<OrdersResponse>(`/admin/orders${query ? `?${query}` : ''}`);
     return { orders: response.orders || [], count: response.count };
   }
 
   async createOrder(data: Partial<Order>): Promise<Order> {
-    const response = await this.request<OrderResponse>('/api/orders', {
+    const response = await this.request<OrderResponse>('/orders', {
       method: 'POST',
       body: JSON.stringify(data),
     });
@@ -177,7 +175,7 @@ class ApiService {
   }
 
   async updateOrder(id: string, data: Partial<Order>): Promise<Order> {
-    const response = await this.request<OrderResponse>(`/api/orders/${id}`, {
+    const response = await this.request<OrderResponse>(`/orders/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data),
     });
@@ -185,72 +183,71 @@ class ApiService {
   }
 
   async deleteOrder(id: string): Promise<void> {
-    await this.request(`/api/orders/${id}`, { method: 'DELETE' });
+    await this.request(`/orders/${id}`, { method: 'DELETE' });
   }
 
   async publishOrder(id: string): Promise<Order> {
-    const response = await this.request<OrderResponse>(`/api/orders/${id}/publish`, {
+    const response = await this.request<OrderResponse>(`/orders/${id}/publish`, {
       method: 'POST',
     });
     return response.order;
   }
 
   async archiveOrder(id: string): Promise<Order> {
-    const response = await this.request<OrderResponse>(`/api/orders/${id}/archive`, {
+    const response = await this.request<OrderResponse>(`/orders/${id}/archive`, {
       method: 'POST',
     });
     return response.order;
   }
 
   async reactivateOrder(id: string): Promise<Order> {
-    const response = await this.request<OrderResponse>(`/api/orders/${id}/reactivate`, {
+    const response = await this.request<OrderResponse>(`/orders/${id}/reactivate`, {
       method: 'POST',
     });
     return response.order;
   }
 
-  // Analytics 接口
   async recordPageView(data: { page_path: string; page_title?: string; referrer?: string }): Promise<void> {
-    await this.request('/api/analytics/pageview', {
+    await this.request('/analytics/pageview', {
       method: 'POST',
       body: JSON.stringify({ visitor_id: this.visitorId, ...data }),
     });
   }
 
   async recordOrderView(order_id: string): Promise<void> {
-    await this.request('/api/analytics/order-view', {
+    await this.request('/analytics/order-view', {
       method: 'POST',
       body: JSON.stringify({ visitor_id: this.visitorId, order_id }),
     });
   }
 
   async getAnalyticsSummary(): Promise<{ totalPV: number; totalUV: number; todayPV: number; todayUV: number }> {
-    const response = await this.request<{ success: boolean; data: { totalPV: number; totalUV: number; todayPV: number; todayUV: number } }>('/api/analytics/summary');
+    const response = await this.request<{ success: boolean; data: { totalPV: number; totalUV: number; todayPV: number; todayUV: number } }>('/analytics/summary');
     return response.data;
   }
 
   async getDailyTrend(): Promise<{ date: string; pv: number; uv: number }[]> {
-    const response = await this.request<{ success: boolean; data: { date: string; pv: number; uv: number }[] }>('/api/analytics/daily-trend');
+    const response = await this.request<{ success: boolean; data: { date: string; pv: number; uv: number }[] }>('/analytics/daily-trend');
     return response.data;
   }
 
   async getDeviceStats(): Promise<{ desktop: number; mobile: number; unknown: number }> {
-    const response = await this.request<{ success: boolean; data: { desktop: number; mobile: number; unknown: number } }>('/api/analytics/device-stats');
+    const response = await this.request<{ success: boolean; data: { desktop: number; mobile: number; unknown: number } }>('/analytics/device-stats');
     return response.data;
   }
 
   async getPageSourceStats(): Promise<{ page: string; count: number }[]> {
-    const response = await this.request<{ success: boolean; data: { page: string; count: number }[] }>('/api/analytics/page-source-stats');
+    const response = await this.request<{ success: boolean; data: { page: string; count: number }[] }>('/analytics/page-source-stats');
     return response.data;
   }
 
   async getTopOrders(): Promise<{ order_id: string; order_no: string; title: string; subject: string; education_stage: string; district: string; view_count: number; last_viewed_at: string | null }[]> {
-    const response = await this.request<{ success: boolean; data: { order_id: string; order_no: string; title: string; subject: string; education_stage: string; district: string; view_count: number; last_viewed_at: string | null }[] }>('/api/analytics/top-orders');
+    const response = await this.request<{ success: boolean; data: { order_id: string; order_no: string; title: string; subject: string; education_stage: string; district: string; view_count: number; last_viewed_at: string | null }[] }>('/analytics/top-orders');
     return response.data;
   }
 
   async getAllOrderViewStats(): Promise<{ [order_id: string]: { total_views: number; today_views: number; last_viewed_at: string | null } }> {
-    const response = await this.request<{ success: boolean; data: { [order_id: string]: { total_views: number; today_views: number; last_viewed_at: string | null } } }>('/api/analytics/all-order-view-stats');
+    const response = await this.request<{ success: boolean; data: { [order_id: string]: { total_views: number; today_views: number; last_viewed_at: string | null } } }>('/analytics/all-order-view-stats');
     return response.data;
   }
 }
