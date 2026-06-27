@@ -113,6 +113,12 @@ export default function AdminDashboard({
     verifyAdmin();
   }, []);
 
+  useEffect(() => {
+    if (isAuthenticated) {
+      loadAnalyticsData();
+    }
+  }, [isAuthenticated]);
+
   const handleLogin = async () => {
     setErrorPrompt('');
     try {
@@ -144,6 +150,12 @@ export default function AdminDashboard({
   // 2. Tab Navigation
   const [adminTab, setAdminTab] = useState<'draft' | 'online' | 'archive' | 'analytics'>('draft');
 
+  useEffect(() => {
+    if (adminTab === 'analytics') {
+      window.scrollTo({ top: 0, behavior: 'instant' });
+    }
+  }, [adminTab]);
+
   // Input raw WeChat paste zone
   const [rawText, setRawText] = useState('');
 
@@ -159,6 +171,7 @@ export default function AdminDashboard({
   const [onlineSearchId, setOnlineSearchId] = useState('');
   const [onlineSearchDistrict, setOnlineSearchDistrict] = useState('全部');
   const [onlineSearchSubject, setOnlineSearchSubject] = useState('全部');
+  const [onlineSortBy, setOnlineSortBy] = useState<'default' | 'views'>('default');
 
   // Archive Search Filters
   const [archiveSearchKeyword, setArchiveSearchKeyword] = useState('');
@@ -1283,7 +1296,7 @@ export default function AdminDashboard({
 
   // Filtering on-sale orders list
   const filteredOnline = useMemo(() => {
-    return orders.filter(o => {
+    let result = orders.filter(o => {
       if (onlineSearchId) {
         const searchLower = onlineSearchId.toLowerCase();
         const orderNo = (o.order_no || '').toLowerCase();
@@ -1298,7 +1311,17 @@ export default function AdminDashboard({
       if (onlineSearchSubject !== '全部' && o.subject !== onlineSearchSubject) return false;
       return true;
     });
-  }, [orders, onlineSearchId, onlineSearchDistrict, onlineSearchSubject]);
+    
+    if (onlineSortBy === 'views') {
+      result = [...result].sort((a, b) => {
+        const aViews = orderViewStats[a.id]?.total_views || 0;
+        const bViews = orderViewStats[b.id]?.total_views || 0;
+        return bViews - aViews;
+      });
+    }
+    
+    return result;
+  }, [orders, onlineSearchId, onlineSearchDistrict, onlineSearchSubject, onlineSortBy, orderViewStats]);
 
   // Paginated online orders
   const paginatedOnline = useMemo(() => {
@@ -1615,7 +1638,7 @@ export default function AdminDashboard({
         </button>
 
         <button
-          onClick={() => { setAdminTab('analytics'); loadAnalyticsData(); }}
+          onClick={() => { setAdminTab('analytics'); loadAnalyticsData(); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
           className={`px-2 md:px-4 py-1.5 rounded-lg text-[10px] md:text-xs font-bold transition-all flex items-center gap-1 whitespace-nowrap ${
             adminTab === 'analytics' 
               ? 'bg-orange-500/10 text-orange-400 border border-orange-500/30' 
@@ -1629,7 +1652,7 @@ export default function AdminDashboard({
       </div>
 
       {/* 3. Main Dashboard Body Panel */}
-      <main className="flex-1 min-h-0 flex bg-[#141517] overflow-hidden">
+      <main className="flex-1 min-h-0 bg-[#141517] overflow-y-auto">
         
         {/* TAB 1: DRAFTS AND CHAT RAW WRITER INTAKE */}
         {adminTab === 'draft' && (
@@ -2177,6 +2200,11 @@ export default function AdminDashboard({
                 <span className="w-24 shrink-0 text-center">学段/科目</span>
                 <span className="w-32 shrink-0">时薪费用</span>
                 <span className="flex-1 min-w-0 pr-6">学生辅导要求快览</span>
+                <span className="w-16 text-center shrink-0 cursor-pointer hover:text-orange-400 transition-colors" onClick={() => setOnlineSortBy(onlineSortBy === 'views' ? 'default' : 'views')}>
+                  浏览次数 {onlineSortBy === 'views' && '↓'}
+                </span>
+                <span className="w-14 text-center shrink-0">今日浏览</span>
+                <span className="w-24 text-center shrink-0">最后浏览</span>
                 <span className="w-24 text-center shrink-0">上单管理操作</span>
               </div>
 
@@ -2315,6 +2343,17 @@ export default function AdminDashboard({
                             <p className="text-neutral-300 truncate font-semibold">{item.studentDesc}</p>
                             <p className="text-[10px] text-neutral-500 truncate mt-0.5">地址：{item.address}</p>
                           </div>
+
+                          {/* View Stats */}
+                          <span className="w-16 text-center font-bold text-neutral-200">
+                            {orderViewStats[item.id]?.total_views || 0}
+                          </span>
+                          <span className="w-14 text-center text-neutral-400">
+                            {orderViewStats[item.id]?.today_views || 0}
+                          </span>
+                          <span className="w-24 text-center text-[10px] text-neutral-500">
+                            {orderViewStats[item.id]?.last_viewed_at ? new Date(orderViewStats[item.id].last_viewed_at).toLocaleDateString() : '-'}
+                          </span>
 
                           {/* Action */}
                           <div className="w-24 text-center">
@@ -2573,44 +2612,42 @@ export default function AdminDashboard({
             </div>
           </div>
         )}
-      </main>
 
-      {/* TAB 4: ANALYTICS */}
-      {adminTab === 'analytics' && (
-        <main className="flex-1 min-h-0 flex bg-[#141517] overflow-hidden">
-          <div className="flex-1 overflow-y-auto p-4 md:p-6">
+        {/* TAB 4: ANALYTICS */}
+        {adminTab === 'analytics' && (
+          <div className="flex-1 flex flex-col min-w-0">
             {analyticsLoading ? (
               <div className="flex items-center justify-center h-full">
                 <Loader className="w-8 h-8 text-orange-500 animate-spin" />
               </div>
             ) : (
-              <div className="space-y-6">
+              <div className="p-4 md:p-6 space-y-6">
                 {/* Summary Cards */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
                   <div className="bg-[#1a1b1e] border border-neutral-800 rounded-xl p-3 md:p-4">
                     <div className="flex items-center justify-between mb-2">
-                      <span className="text-[10px] md:text-xs text-neutral-400 font-bold">今日 PV</span>
+                      <span className="text-[10px] md:text-xs text-neutral-400 font-bold">今日 PV (页面访问量)</span>
                       <Activity className="w-4 h-4 text-green-500" />
                     </div>
                     <div className="text-xl md:text-2xl font-bold text-white">{analyticsSummary?.todayPV || 0}</div>
                   </div>
                   <div className="bg-[#1a1b1e] border border-neutral-800 rounded-xl p-3 md:p-4">
                     <div className="flex items-center justify-between mb-2">
-                      <span className="text-[10px] md:text-xs text-neutral-400 font-bold">今日 UV</span>
+                      <span className="text-[10px] md:text-xs text-neutral-400 font-bold">今日 UV (独立访客数)</span>
                       <Users className="w-4 h-4 text-blue-500" />
                     </div>
                     <div className="text-xl md:text-2xl font-bold text-white">{analyticsSummary?.todayUV || 0}</div>
                   </div>
                   <div className="bg-[#1a1b1e] border border-neutral-800 rounded-xl p-3 md:p-4">
                     <div className="flex items-center justify-between mb-2">
-                      <span className="text-[10px] md:text-xs text-neutral-400 font-bold">累计 PV</span>
+                      <span className="text-[10px] md:text-xs text-neutral-400 font-bold">累计 PV (页面访问量)</span>
                       <BarChart3 className="w-4 h-4 text-orange-500" />
                     </div>
                     <div className="text-xl md:text-2xl font-bold text-white">{analyticsSummary?.totalPV || 0}</div>
                   </div>
                   <div className="bg-[#1a1b1e] border border-neutral-800 rounded-xl p-3 md:p-4">
                     <div className="flex items-center justify-between mb-2">
-                      <span className="text-[10px] md:text-xs text-neutral-400 font-bold">累计 UV</span>
+                      <span className="text-[10px] md:text-xs text-neutral-400 font-bold">累计 UV (独立访客数)</span>
                       <Globe className="w-4 h-4 text-purple-500" />
                     </div>
                     <div className="text-xl md:text-2xl font-bold text-white">{analyticsSummary?.totalUV || 0}</div>
@@ -2736,8 +2773,8 @@ export default function AdminDashboard({
               </div>
             )}
           </div>
-        </main>
-      )}
+        )}
+      </main>
 
       {/* User Feedback Notifications Panel */}
       {feedbacks.length > 0 && (

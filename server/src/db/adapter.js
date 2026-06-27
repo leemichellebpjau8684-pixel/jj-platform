@@ -2,6 +2,7 @@ const memoryStore = require('./memoryStore');
 
 let store = memoryStore;
 let storeType = 'memory_store';
+let pool = null;
 
 // 生成订单编号函数
 function generate_order_no() {
@@ -16,7 +17,7 @@ function generate_order_no() {
 async function initStore() {
   try {
     const { Pool } = require('pg');
-    const pool = new Pool({
+    pool = new Pool({
       connectionString: process.env.DATABASE_URL,
       ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
     });
@@ -180,6 +181,176 @@ async function initStore() {
         updateLastLogin: async (id) => {
           await pool.query('UPDATE admins SET last_login_at = NOW() WHERE id = $1', [id]);
         }
+      },
+      analytics: {
+        recordPageView: async (visitorId, pagePath, pageTitle, referrer, deviceType, userAgent, ipAddress) => {
+          await pool.query(`
+            INSERT INTO analytics_page_views (visitor_id, page_path, page_title, referrer, device_type, user_agent, ip_address)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+          `, [visitorId, pagePath, pageTitle, referrer, deviceType, userAgent, ipAddress]);
+        },
+        recordOrderView: async (visitorId, orderId) => {
+          await pool.query(`
+            INSERT INTO order_view_logs (visitor_id, order_id)
+            VALUES ($1, $2)
+          `, [visitorId, orderId]);
+        },
+        upsertVisitor: async (visitorId, deviceType, userAgent, ipAddress) => {
+          const now = new Date().toISOString();
+          await pool.query(`
+            INSERT INTO analytics_visitors (visitor_id, first_visit_at, last_visit_at, device_type, user_agent, ip_address)
+            VALUES ($1, $2, $2, $3, $4, $5)
+            ON CONFLICT (visitor_id) DO UPDATE SET
+              last_visit_at = $2,
+              device_type = COALESCE(EXCLUDED.device_type, analytics_visitors.device_type),
+              user_agent = COALESCE(EXCLUDED.user_agent, analytics_visitors.user_agent),
+              ip_address = COALESCE(EXCLUDED.ip_address, analytics_visitors.ip_address)
+          `, [visitorId, now, deviceType, userAgent, ipAddress]);
+        },
+        getSummary: async () => {
+          const now = new Date();
+          const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+          
+          const [totalPVResult, totalUVResult, todayPVResult, todayUVResult] = await Promise.all([
+            pool.query('SELECT COUNT(*) as count FROM analytics_page_views'),
+            pool.query('SELECT COUNT(*) as count FROM analytics_visitors'),
+            pool.query('SELECT COUNT(*) as count FROM analytics_page_views WHERE created_at >= $1', [todayStart]),
+            pool.query('SELECT COUNT(DISTINCT visitor_id) as count FROM analytics_page_views WHERE created_at >= $1', [todayStart])
+          ]);
+          
+          return {
+            totalPV: parseInt(totalPVResult.rows[0].count) || 0,
+            totalUV: parseInt(totalUVResult.rows[0].count) || 0,
+            todayPV: parseInt(todayPVResult.rows[0].count) || 0,
+            todayUV: parseInt(todayUVResult.rows[0].count) || 0
+          };
+        },
+        getDailyTrend: async () => {
+          const result = await pool.query(`
+            SELECT 
+              DATE(created_at) as date,
+              COUNT(*) as pv,
+              COUNT(DISTINCT visitor_id) as uv
+            FROM analytics_page_views
+            WHERE created_at >= NOW() - INTERVAL '7 days'
+            GROUP BY DATE(created_at)
+            ORDER BY date
+          `);
+          
+          const last7Days = [];
+          for (let i = 6; i >= 0; i--) {
+            const d = new Date();
+            d.setDate(d.getDate() - i);
+            last7Days.push(d.toISOString().split('T')[0]);
+          }
+          
+          return last7Days.map(date => {
+            const row = result.rows.find(r => r.date && r.date.toISOString().split('T')[0] === date);
+            return {
+              date,
+              pv: row ? parseInt(row.pv) : 0,
+              uv: row ? parseInt(row.uv) : 0
+            };
+          });
+        },
+        getDeviceStats: async () => {
+          const result = await pool.query(`
+            SELECT device_type, COUNT(*) as count
+            FROM analytics_page_views
+            GROUP BY device_type
+          `);
+          
+          const stats = { desktop: 0, mobile: 0, unknown: 0 };
+          result.rows.forEach(row => {
+            const type = row.device_type || 'unknown';
+            stats[type] = parseInt(row.count);
+          });
+          return stats;
+        },
+        getPageSourceStats: async () => {
+          const result = await pool.query(`
+            SELECT page_path, COUNT(*) as count
+            FROM analytics_page_views
+            GROUP BY page_path
+            ORDER BY count DESC
+            LIMIT 20
+          `);
+          
+          return result.rows.map(row => ({
+            page: row.page_path,
+            count: parseInt(row.count)
+          }));
+        },
+        getTopOrders: async () => {
+          const result = await pool.query(`
+            SELECT 
+              ov.order_id,
+              o.order_no,
+              o.title,
+              o.subject,
+              o.education_stage,
+              o.district,
+              COUNT(*) as view_count,
+              MAX(ov.viewed_at) as last_viewed_at
+            FROM order_view_logs ov
+            JOIN orders o ON ov.order_id = o.id
+            WHERE o.status = 'active'
+            GROUP BY ov.order_id, o.order_no, o.title, o.subject, o.education_stage, o.district
+            ORDER BY view_count DESC
+            LIMIT 20
+          `);
+          
+          return result.rows.map(row => ({
+            order_id: row.order_id,
+            order_no: row.order_no,
+            title: row.title,
+            subject: row.subject,
+            education_stage: row.education_stage,
+            district: row.district,
+            view_count: parseInt(row.view_count),
+            last_viewed_at: row.last_viewed_at ? row.last_viewed_at.toISOString() : null
+          }));
+        },
+        getOrderViewStats: async (orderId) => {
+          const now = new Date();
+          const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+          
+          const [totalResult, todayResult, lastViewResult] = await Promise.all([
+            pool.query('SELECT COUNT(*) as count FROM order_view_logs WHERE order_id = $1', [orderId]),
+            pool.query('SELECT COUNT(*) as count FROM order_view_logs WHERE order_id = $1 AND viewed_at >= $2', [orderId, todayStart]),
+            pool.query('SELECT MAX(viewed_at) as last_viewed FROM order_view_logs WHERE order_id = $1', [orderId])
+          ]);
+          
+          return {
+            total_views: parseInt(totalResult.rows[0].count) || 0,
+            today_views: parseInt(todayResult.rows[0].count) || 0,
+            last_viewed_at: lastViewResult.rows[0].last_viewed ? lastViewResult.rows[0].last_viewed.toISOString() : null
+          };
+        },
+        getAllOrderViewStats: async () => {
+          const now = new Date();
+          const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+          
+          const result = await pool.query(`
+            SELECT 
+              ov.order_id,
+              COUNT(*) as total_views,
+              SUM(CASE WHEN ov.viewed_at >= $1 THEN 1 ELSE 0 END) as today_views,
+              MAX(ov.viewed_at) as last_viewed_at
+            FROM order_view_logs ov
+            GROUP BY ov.order_id
+          `, [todayStart]);
+          
+          const stats = {};
+          result.rows.forEach(row => {
+            stats[row.order_id] = {
+              total_views: parseInt(row.total_views) || 0,
+              today_views: parseInt(row.today_views) || 0,
+              last_viewed_at: row.last_viewed_at ? row.last_viewed_at.toISOString() : null
+            };
+          });
+          return stats;
+        }
       }
     };
     
@@ -195,4 +366,4 @@ async function initStore() {
   }
 }
 
-module.exports = { getStore: () => store, getStoreType: () => storeType, initStore };
+module.exports = { getStore: () => store, getStoreType: () => storeType, initStore, getPool: () => pool };
