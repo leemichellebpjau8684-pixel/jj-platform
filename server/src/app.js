@@ -62,10 +62,12 @@ app.use('/api/', (req, res, next) => {
 const ordersRoutes = require('./routes/orders');
 const adminRoutes = require('./routes/admin');
 const healthRoutes = require('./routes/health');
+const analyticsRoutes = require('./routes/analytics');
 
 app.use('/api/orders', ordersRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/health', healthRoutes);
+app.use('/api/analytics', analyticsRoutes);
 
 app.use((err, req, res, next) => {
   console.error(err.stack);

@@ -231,3 +231,90 @@ BEGIN
     RETURN order_no;
 END;
 $$ LANGUAGE plpgsql;
+
+-- =====================================================
+-- 8. 访客表（Analytics V1）
+-- =====================================================
+CREATE TABLE IF NOT EXISTS analytics_visitors (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    visitor_id VARCHAR(64) UNIQUE NOT NULL,
+    first_visit_at TIMESTAMP DEFAULT NOW(),
+    last_visit_at TIMESTAMP DEFAULT NOW(),
+    device_type VARCHAR(20),
+    user_agent TEXT,
+    ip_address VARCHAR(45),
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- 访客表索引
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_visitors_visitor_id') THEN
+        CREATE INDEX idx_visitors_visitor_id ON analytics_visitors(visitor_id);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_visitors_first_visit') THEN
+        CREATE INDEX idx_visitors_first_visit ON analytics_visitors(first_visit_at);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_visitors_last_visit') THEN
+        CREATE INDEX idx_visitors_last_visit ON analytics_visitors(last_visit_at);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_visitors_device') THEN
+        CREATE INDEX idx_visitors_device ON analytics_visitors(device_type);
+    END IF;
+END $$;
+
+-- =====================================================
+-- 9. 页面访问记录表（Analytics V1）
+-- =====================================================
+CREATE TABLE IF NOT EXISTS analytics_page_views (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    visitor_id VARCHAR(64) NOT NULL,
+    page_path VARCHAR(500) NOT NULL,
+    page_title VARCHAR(200),
+    referrer VARCHAR(500),
+    device_type VARCHAR(20),
+    user_agent TEXT,
+    ip_address VARCHAR(45),
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- 页面访问记录表索引
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_page_views_visitor') THEN
+        CREATE INDEX idx_page_views_visitor ON analytics_page_views(visitor_id);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_page_views_path') THEN
+        CREATE INDEX idx_page_views_path ON analytics_page_views(page_path);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_page_views_created') THEN
+        CREATE INDEX idx_page_views_created ON analytics_page_views(created_at DESC);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_page_views_device') THEN
+        CREATE INDEX idx_page_views_device ON analytics_page_views(device_type);
+    END IF;
+END $$;
+
+-- =====================================================
+-- 10. 订单浏览日志表（Analytics V1）
+-- =====================================================
+CREATE TABLE IF NOT EXISTS order_view_logs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    visitor_id VARCHAR(64) NOT NULL,
+    order_id UUID REFERENCES orders(id) ON DELETE CASCADE,
+    viewed_at TIMESTAMP DEFAULT NOW()
+);
+
+-- 订单浏览日志表索引
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_order_views_visitor') THEN
+        CREATE INDEX idx_order_views_visitor ON order_view_logs(visitor_id);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_order_views_order') THEN
+        CREATE INDEX idx_order_views_order ON order_view_logs(order_id);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_order_views_viewed') THEN
+        CREATE INDEX idx_order_views_viewed ON order_view_logs(viewed_at DESC);
+    END IF;
+END $$;

@@ -33,6 +33,14 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    api.recordPageView({
+      page_path: window.location.pathname + window.location.hash,
+      page_title: document.title,
+      referrer: document.referrer
+    }).catch(() => {});
+  }, []);
+
+  useEffect(() => {
     const loadOrders = async () => {
       setLoading(true);
       setError(null);
@@ -385,6 +393,13 @@ export default function App() {
 
   const [activeTab, setActiveTab] = useState<'list' | 'map' | 'favorites'>('list'); // 'list' = "找家教", 'map' = "附近家教", 'favorites' = "我的"
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (selectedOrderId) {
+      api.recordOrderView(selectedOrderId).catch(() => {});
+    }
+  }, [selectedOrderId]);
+
   const prevActiveTabRef = useRef<string>(activeTab);
 
   // Pagination state

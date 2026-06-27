@@ -3,7 +3,7 @@ import {
   Check, X, FileText, AlertTriangle, Play, RefreshCw, Trash2, 
   Search, ShieldCheck, LogIn, ChevronRight, CornerDownRight, CheckSquare, 
   Square, Info, Activity, Database, Calendar, Clock, DollarSign, MapPin,
-  HelpCircle, Loader, RotateCcw
+  HelpCircle, Loader, RotateCcw, BarChart3, Users, Globe, TrendingUp, Monitor, Star
 } from 'lucide-react';
 import { Order, Coordinate } from '../types';
 import { SHANGHAI_DISTRICTS, SUBJECTS, GRADES } from '../data';
@@ -142,7 +142,7 @@ export default function AdminDashboard({
   };
 
   // 2. Tab Navigation
-  const [adminTab, setAdminTab] = useState<'draft' | 'online' | 'archive'>('draft');
+  const [adminTab, setAdminTab] = useState<'draft' | 'online' | 'archive' | 'analytics'>('draft');
 
   // Input raw WeChat paste zone
   const [rawText, setRawText] = useState('');
@@ -174,6 +174,39 @@ export default function AdminDashboard({
   // Archive batch delete states
   const [selectedArchiveIds, setSelectedArchiveIds] = useState<string[]>([]);
   const [showArchiveDeleteConfirm, setShowArchiveDeleteConfirm] = useState(false);
+
+  // Analytics states
+  const [analyticsSummary, setAnalyticsSummary] = useState<{ totalPV: number; totalUV: number; todayPV: number; todayUV: number } | null>(null);
+  const [dailyTrend, setDailyTrend] = useState<{ date: string; pv: number; uv: number }[]>([]);
+  const [deviceStats, setDeviceStats] = useState<{ desktop: number; mobile: number; unknown: number } | null>(null);
+  const [pageSourceStats, setPageSourceStats] = useState<{ page: string; count: number }[]>([]);
+  const [topOrders, setTopOrders] = useState<{ order_id: string; order_no: string; title: string; subject: string; education_stage: string; district: string; view_count: number; last_viewed_at: string | null }[]>([]);
+  const [orderViewStats, setOrderViewStats] = useState<{ [order_id: string]: { total_views: number; today_views: number; last_viewed_at: string | null } }>({});
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+
+  const loadAnalyticsData = async () => {
+    setAnalyticsLoading(true);
+    try {
+      const [summary, trend, devices, sources, top, orderStats] = await Promise.all([
+        api.getAnalyticsSummary(),
+        api.getDailyTrend(),
+        api.getDeviceStats(),
+        api.getPageSourceStats(),
+        api.getTopOrders(),
+        api.getAllOrderViewStats()
+      ]);
+      setAnalyticsSummary(summary);
+      setDailyTrend(trend);
+      setDeviceStats(devices);
+      setPageSourceStats(sources);
+      setTopOrders(top);
+      setOrderViewStats(orderStats);
+    } catch (err) {
+      console.error('加载统计数据失败:', err);
+    } finally {
+      setAnalyticsLoading(false);
+    }
+  };
 
   // Feedback notifications
   const [alertInfo, setAlertInfo] = useState<{ text: string; type: 'success' | 'info' | 'error' } | null>(null);
@@ -1580,6 +1613,19 @@ export default function AdminDashboard({
           <span className="md:hidden">归档 ({archives.length})</span>
           <span className="hidden lg:inline text-[9px] font-mono px-1 rounded bg-neutral-900 border border-neutral-800 text-neutral-500">archive.json</span>
         </button>
+
+        <button
+          onClick={() => { setAdminTab('analytics'); loadAnalyticsData(); }}
+          className={`px-2 md:px-4 py-1.5 rounded-lg text-[10px] md:text-xs font-bold transition-all flex items-center gap-1 whitespace-nowrap ${
+            adminTab === 'analytics' 
+              ? 'bg-orange-500/10 text-orange-400 border border-orange-500/30' 
+              : 'border border-transparent hover:bg-neutral-800 text-neutral-400 hover:text-neutral-200'
+          }`}
+        >
+          <BarChart3 className="w-3.5 h-3.5 shrink-0" />
+          <span className="hidden md:inline">数据统计</span>
+          <span className="md:hidden">统计</span>
+        </button>
       </div>
 
       {/* 3. Main Dashboard Body Panel */}
@@ -2528,6 +2574,170 @@ export default function AdminDashboard({
           </div>
         )}
       </main>
+
+      {/* TAB 4: ANALYTICS */}
+      {adminTab === 'analytics' && (
+        <main className="flex-1 min-h-0 flex bg-[#141517] overflow-hidden">
+          <div className="flex-1 overflow-y-auto p-4 md:p-6">
+            {analyticsLoading ? (
+              <div className="flex items-center justify-center h-full">
+                <Loader className="w-8 h-8 text-orange-500 animate-spin" />
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {/* Summary Cards */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
+                  <div className="bg-[#1a1b1e] border border-neutral-800 rounded-xl p-3 md:p-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-[10px] md:text-xs text-neutral-400 font-bold">今日 PV</span>
+                      <Activity className="w-4 h-4 text-green-500" />
+                    </div>
+                    <div className="text-xl md:text-2xl font-bold text-white">{analyticsSummary?.todayPV || 0}</div>
+                  </div>
+                  <div className="bg-[#1a1b1e] border border-neutral-800 rounded-xl p-3 md:p-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-[10px] md:text-xs text-neutral-400 font-bold">今日 UV</span>
+                      <Users className="w-4 h-4 text-blue-500" />
+                    </div>
+                    <div className="text-xl md:text-2xl font-bold text-white">{analyticsSummary?.todayUV || 0}</div>
+                  </div>
+                  <div className="bg-[#1a1b1e] border border-neutral-800 rounded-xl p-3 md:p-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-[10px] md:text-xs text-neutral-400 font-bold">累计 PV</span>
+                      <BarChart3 className="w-4 h-4 text-orange-500" />
+                    </div>
+                    <div className="text-xl md:text-2xl font-bold text-white">{analyticsSummary?.totalPV || 0}</div>
+                  </div>
+                  <div className="bg-[#1a1b1e] border border-neutral-800 rounded-xl p-3 md:p-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-[10px] md:text-xs text-neutral-400 font-bold">累计 UV</span>
+                      <Globe className="w-4 h-4 text-purple-500" />
+                    </div>
+                    <div className="text-xl md:text-2xl font-bold text-white">{analyticsSummary?.totalUV || 0}</div>
+                  </div>
+                </div>
+
+                {/* Daily Trend */}
+                <div className="bg-[#1a1b1e] border border-neutral-800 rounded-xl p-4 md:p-6">
+                  <h3 className="text-xs md:text-sm font-bold text-neutral-200 mb-4 flex items-center gap-2">
+                    <TrendingUp className="w-4 h-4 text-green-500" />
+                    近7天访问趋势
+                  </h3>
+                  <div className="h-48 flex items-end gap-2 md:gap-4">
+                    {dailyTrend.map((day) => {
+                      const maxPV = Math.max(...dailyTrend.map(d => d.pv), 1);
+                      const pvHeight = (day.pv / maxPV) * 100;
+                      return (
+                        <div key={day.date} className="flex-1 flex flex-col items-center gap-2">
+                          <div className="w-full flex gap-1 justify-center">
+                            <div 
+                              className="w-3 md:w-4 bg-green-500/60 rounded-t"
+                              style={{ height: `${pvHeight}%`, minHeight: '4px' }}
+                              title={`PV: ${day.pv}`}
+                            />
+                          </div>
+                          <span className="text-[9px] md:text-[10px] text-neutral-500">{day.date.split('-').slice(1).join('/')}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Device Stats & Page Source */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
+                  <div className="bg-[#1a1b1e] border border-neutral-800 rounded-xl p-4 md:p-6">
+                    <h3 className="text-xs md:text-sm font-bold text-neutral-200 mb-4 flex items-center gap-2">
+                      <Monitor className="w-4 h-4 text-blue-500" />
+                      设备占比
+                    </h3>
+                    {deviceStats && (
+                      <div className="space-y-3">
+                        <div>
+                          <div className="flex justify-between text-[10px] mb-1">
+                            <span className="text-neutral-400">PC</span>
+                            <span className="text-neutral-200 font-bold">{deviceStats.desktop} ({Math.round(deviceStats.desktop / (deviceStats.desktop + deviceStats.mobile + deviceStats.unknown) * 100)}%)</span>
+                          </div>
+                          <div className="h-2 bg-neutral-900 rounded-full overflow-hidden">
+                            <div 
+                              className="h-full bg-blue-500 rounded-full transition-all"
+                              style={{ width: `${(deviceStats.desktop / (deviceStats.desktop + deviceStats.mobile + deviceStats.unknown)) * 100}%` }}
+                            />
+                          </div>
+                        </div>
+                        <div>
+                          <div className="flex justify-between text-[10px] mb-1">
+                            <span className="text-neutral-400">Mobile</span>
+                            <span className="text-neutral-200 font-bold">{deviceStats.mobile} ({Math.round(deviceStats.mobile / (deviceStats.desktop + deviceStats.mobile + deviceStats.unknown) * 100)}%)</span>
+                          </div>
+                          <div className="h-2 bg-neutral-900 rounded-full overflow-hidden">
+                            <div 
+                              className="h-full bg-green-500 rounded-full transition-all"
+                              style={{ width: `${(deviceStats.mobile / (deviceStats.desktop + deviceStats.mobile + deviceStats.unknown)) * 100}%` }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="bg-[#1a1b1e] border border-neutral-800 rounded-xl p-4 md:p-6">
+                    <h3 className="text-xs md:text-sm font-bold text-neutral-200 mb-4 flex items-center gap-2">
+                      <ChevronRight className="w-4 h-4 text-orange-500" />
+                      页面来源统计
+                    </h3>
+                    <div className="space-y-2 max-h-48 overflow-y-auto">
+                      {pageSourceStats.slice(0, 10).map((item, index) => (
+                        <div key={index} className="flex items-center justify-between text-[10px]">
+                          <span className="text-neutral-400 truncate flex-1 mr-2">{item.page}</span>
+                          <span className="text-neutral-200 font-bold">{item.count}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Top Orders */}
+                <div className="bg-[#1a1b1e] border border-neutral-800 rounded-xl p-4 md:p-6">
+                  <h3 className="text-xs md:text-sm font-bold text-neutral-200 mb-4 flex items-center gap-2">
+                    <Star className="w-4 h-4 text-yellow-500" />
+                    热门订单 TOP20
+                  </h3>
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="text-[10px] text-neutral-500 border-b border-neutral-800">
+                          <th className="text-left py-2 px-2">排名</th>
+                          <th className="text-left py-2 px-2">订单编号</th>
+                          <th className="text-left py-2 px-2">标题</th>
+                          <th className="text-left py-2 px-2">学段/科目</th>
+                          <th className="text-left py-2 px-2">区域</th>
+                          <th className="text-right py-2 px-2">浏览次数</th>
+                          <th className="text-right py-2 px-2">最后浏览</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {topOrders.map((order, index) => (
+                          <tr key={order.order_id} className="text-[10px] border-b border-neutral-800/50 hover:bg-neutral-800/30">
+                            <td className="py-2 px-2 font-bold text-orange-500">#{index + 1}</td>
+                            <td className="py-2 px-2 font-mono text-neutral-400 truncate max-w-20">{order.order_no}</td>
+                            <td className="py-2 px-2 text-neutral-300 truncate max-w-32">{order.title}</td>
+                            <td className="py-2 px-2 text-neutral-400">{order.education_stage} {order.subject}</td>
+                            <td className="py-2 px-2 text-neutral-400">{order.district}</td>
+                            <td className="py-2 px-2 text-right font-bold text-white">{order.view_count}</td>
+                            <td className="py-2 px-2 text-right text-neutral-500">
+                              {order.last_viewed_at ? new Date(order.last_viewed_at).toLocaleDateString() : '-'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </main>
+      )}
 
       {/* User Feedback Notifications Panel */}
       {feedbacks.length > 0 && (

@@ -59,9 +59,23 @@ interface LoginResponse {
 
 class ApiService {
   private token: string | null = null;
+  private visitorId: string | null = null;
 
   constructor() {
     this.token = localStorage.getItem('admin_token');
+    this.visitorId = localStorage.getItem('visitor_id');
+    if (!this.visitorId) {
+      this.visitorId = this.generateVisitorId();
+      localStorage.setItem('visitor_id', this.visitorId);
+    }
+  }
+
+  private generateVisitorId(): string {
+    return 'vis_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 9);
+  }
+
+  getVisitorId(): string {
+    return this.visitorId || '';
   }
 
   setToken(token: string) {
@@ -86,6 +100,10 @@ class ApiService {
 
     if (this.token) {
       (headers as Record<string, string>)['Authorization'] = `Bearer ${this.token}`;
+    }
+
+    if (this.visitorId) {
+      (headers as Record<string, string>)['X-Visitor-ID'] = this.visitorId;
     }
 
     const response = await fetch(`${API_BASE_URL}${url}`, {
@@ -189,6 +207,51 @@ class ApiService {
       method: 'POST',
     });
     return response.order;
+  }
+
+  // Analytics 接口
+  async recordPageView(data: { page_path: string; page_title?: string; referrer?: string }): Promise<void> {
+    await this.request('/api/analytics/pageview', {
+      method: 'POST',
+      body: JSON.stringify({ visitor_id: this.visitorId, ...data }),
+    });
+  }
+
+  async recordOrderView(order_id: string): Promise<void> {
+    await this.request('/api/analytics/order-view', {
+      method: 'POST',
+      body: JSON.stringify({ visitor_id: this.visitorId, order_id }),
+    });
+  }
+
+  async getAnalyticsSummary(): Promise<{ totalPV: number; totalUV: number; todayPV: number; todayUV: number }> {
+    const response = await this.request<{ success: boolean; data: { totalPV: number; totalUV: number; todayPV: number; todayUV: number } }>('/api/analytics/summary');
+    return response.data;
+  }
+
+  async getDailyTrend(): Promise<{ date: string; pv: number; uv: number }[]> {
+    const response = await this.request<{ success: boolean; data: { date: string; pv: number; uv: number }[] }>('/api/analytics/daily-trend');
+    return response.data;
+  }
+
+  async getDeviceStats(): Promise<{ desktop: number; mobile: number; unknown: number }> {
+    const response = await this.request<{ success: boolean; data: { desktop: number; mobile: number; unknown: number } }>('/api/analytics/device-stats');
+    return response.data;
+  }
+
+  async getPageSourceStats(): Promise<{ page: string; count: number }[]> {
+    const response = await this.request<{ success: boolean; data: { page: string; count: number }[] }>('/api/analytics/page-source-stats');
+    return response.data;
+  }
+
+  async getTopOrders(): Promise<{ order_id: string; order_no: string; title: string; subject: string; education_stage: string; district: string; view_count: number; last_viewed_at: string | null }[]> {
+    const response = await this.request<{ success: boolean; data: { order_id: string; order_no: string; title: string; subject: string; education_stage: string; district: string; view_count: number; last_viewed_at: string | null }[] }>('/api/analytics/top-orders');
+    return response.data;
+  }
+
+  async getAllOrderViewStats(): Promise<{ [order_id: string]: { total_views: number; today_views: number; last_viewed_at: string | null } }> {
+    const response = await this.request<{ success: boolean; data: { [order_id: string]: { total_views: number; today_views: number; last_viewed_at: string | null } } }>('/api/analytics/all-order-view-stats');
+    return response.data;
   }
 }
 
