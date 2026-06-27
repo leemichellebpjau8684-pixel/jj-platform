@@ -239,9 +239,9 @@ export default function AdminDashboard({
     }
 
     // Split raw text into individual blocks by looking for order number patterns first
-    // Primary patterns: 【数字】号信息, 🌙【数字】, 【订单编号】, SH-2026, etc.
+    // Primary patterns: 【数字】号信息, 🌙【数字】, 【订单编号】, SH-2026, LL家教, etc.
     const rawBlocks = rawText
-      .split(/\n\s*\n|(?=🌙【\d+】)|(?=【\d+】号信息)|(?=【\d+】)|(?=家教编号[:：])|(?=订单编号[:：])|(?=编号[:：])|(?=【订单)|(?=SH-2026)/gi)
+      .split(/\n\s*\n|(?=🌙【\d+】)|(?=【\d+】号信息)|(?=【\d+】)|(?=\n家教编号[:：])|(?=\n订单编号[:：])|(?=\n编号[:：])|(?=【订单)|(?=\n\s*【家教编号】)|(?=SH-2026)|(?=\[.*?\]LL家教)|(?=LL家教)|(?=\s*[^\w\s\u4e00-\u9fff：:]\d{8,}(?!\/月))|(?=\s+[A-Za-z]{2,}\d{4,}[A-Za-z0-9]*)/gi)
       .map(b => b.trim())
       .filter(b => b.length > 8);
 
@@ -258,93 +258,84 @@ export default function AdminDashboard({
     rawBlocks.forEach((block, index) => {
       const lines = block.split('\n').filter(line => line.trim().length > 0);
       
-      // 1. Analyze Order ID - 使用新的识别规则
-      // 条件：①含字母 ②有至少3位连续数字 ③带"号"字
-      // 编号：满足至少2个条件的行的全部内容
+      // 1. Analyze Order ID - 新规则：4位以上数字即为编号（排除数字/月），字母+数字组合也为编号，忽略表情符号
       let orderId = '';
       let idLine = '';
       
-      // 检查每一行是否满足条件
-      const checkLineConditions = (line: string): { hasLetter: boolean; hasDigits: boolean; hasHao: boolean; score: number } => {
-        const hasLetter = /[a-zA-Z]/.test(line);
-        const hasDigits = /\d{3,}/.test(line); // 至少3位连续数字
-        const hasHao = /号/.test(line);
-        const score = (hasLetter ? 1 : 0) + (hasDigits ? 1 : 0) + (hasHao ? 1 : 0);
-        return { hasLetter, hasDigits, hasHao, score };
-      };
-      
-      // 优先检查明确的编号格式（家教编号：xxx#yyy 格式）
-      const explicitIdMatch = block.match(/(?:家教编号|订单编号|编号)[:：\s]*([A-Za-z0-9-#]+)/i);
-      if (explicitIdMatch) {
-        orderId = explicitIdMatch[1];
-        const idLineIndex = lines.findIndex(line => line.match(/(家教编号|订单编号|编号)/));
+      // 优先检查LL家教格式编号（LL家教xxx格式）
+      const llIdMatch = block.match(/LL家教([A-Za-z0-9]+[A-Za-z]?)/i);
+      if (llIdMatch) {
+        orderId = llIdMatch[1];
+        const idLineIndex = lines.findIndex(line => line.includes('LL家教'));
         if (idLineIndex >= 0) {
           idLine = lines[idLineIndex].trim();
         }
       }
       
-      // 如果没有找到明确格式，检查满足至少2个条件的行
+      // 优先检查明确的编号格式（家教编号：xxx#yyy 格式）
+      if (!orderId) {
+        const explicitIdMatch = block.match(/(?:家教编号|订单编号|编号)[:：\s]*([A-Za-z0-9-#]+)/i);
+        if (explicitIdMatch) {
+          orderId = explicitIdMatch[1];
+          const idLineIndex = lines.findIndex(line => line.match(/(家教编号|订单编号|编号)[:：]/));
+          if (idLineIndex >= 0) {
+            idLine = lines[idLineIndex].trim();
+          }
+        }
+      }
+      
+      if (!orderId) {
+        const bracketIdMatch = block.match(/【(家教编号|订单编号|编号)】\s*([A-Za-z0-9-#]+)/i);
+        if (bracketIdMatch) {
+          orderId = bracketIdMatch[2];
+          const idLineIndex = lines.findIndex(line => line.match(/【(家教编号|订单编号|编号)】/));
+          if (idLineIndex >= 0) {
+            idLine = lines[idLineIndex].trim();
+          }
+        }
+      }
+      
+      // 规则1：查找字母+数字组合（如 SH2606211203），排除地址中的路/弄/号
       if (!orderId) {
         for (const line of lines) {
-          const conditions = checkLineConditions(line);
-          if (conditions.score >= 2) {
+          const letterNumMatch = line.match(/[A-Za-z]+\d{4,}[A-Za-z0-9]*[A-Za-z]?/);
+          if (letterNumMatch && !line.includes('路') && !line.includes('弄') && !line.includes('号')) {
+            orderId = letterNumMatch[0];
             idLine = line.trim();
-            // 改进正则：支持"编号：xxx#"格式和"xxx号"格式
-            // 先尝试匹配"编号[:：]xxx#"
-            const explicitMatch = line.match(/编号[:：]\s*([A-Za-z0-9-#]+)/);
-            if (explicitMatch) {
-              orderId = explicitMatch[1];
-            } else {
-              // 尝试匹配"xxx号"格式
-              const haoMatch = line.match(/([A-Za-z0-9-#]+)号/);
-              if (haoMatch) {
-                orderId = haoMatch[1];
-              } else {
-                // 提取字母+数字组合（至少5位数字，避免匹配短数字如985211）
-                const idMatch = line.match(/[A-Za-z]?\d{5,}[A-Za-z0-9-#]*|[A-Za-z][A-Za-z0-9-#]*\d{5,}/);
-                if (idMatch) {
-                  orderId = idMatch[0];
-                }
-              }
-            }
             break;
           }
         }
       }
       
-      // 如果仍然没有找到订单ID，尝试从标题行中提取（如"暑假单261101" → 261101）
+      // 规则2：查找8位以上数字（排除 数字/月 格式，排除地址中的路/弄/号）
       if (!orderId) {
-        // 查找可能包含订单编号的标题行（如"暑假单261101"）
-        // 注意：只匹配8位以上数字，避免匹配短数字如"985211"
-        const titlePatterns = [
-          /([A-Za-z\u4e00-\u9fa5]+)[^\d]*(\d{8,})/,  // 匹配"暑假单261101"（8位以上）
-          /(\d{8,})/,  // 直接匹配8位以上数字
-        ];
-        
         for (const line of lines) {
-          for (const pattern of titlePatterns) {
-            const match = line.match(pattern);
-            if (match) {
-              // 取最后匹配的数字作为订单ID
-              const numMatch = line.match(/\d{8,}/);
-              if (numMatch) {
-                orderId = numMatch[0];
-                idLine = line.trim();
-                break;
-              }
-            }
+          const numMatch = line.match(/\d{8,}/);
+          if (numMatch && !line.includes('/月') && !line.includes('路') && !line.includes('弄') && !line.includes('号')) {
+            orderId = numMatch[0];
+            idLine = line.trim();
+            break;
           }
-          if (orderId) break;
         }
       }
       
-      // 如果还没有，尝试传统方式匹配
+      // 如果还没有，尝试传统方式匹配（括号格式）
       if (!orderId) {
-        // First, check for bracket number patterns like 【762129】 or 🌙【818272】号信息
         const bracketIdMatch = block.match(/【(\d+)】/);
         if (bracketIdMatch) {
           orderId = bracketIdMatch[1];
           const idLineIndex = lines.findIndex(line => line.includes('【'));
+          if (idLineIndex >= 0) {
+            idLine = lines[idLineIndex].trim();
+          }
+        }
+      }
+      
+      if (!orderId) {
+        const numHaoMatch = block.match(/(\d+)号家教/i);
+        if (numHaoMatch) {
+          orderId = numHaoMatch[1];
+          const idLineIndex = lines.findIndex(line => line.match(/\d+号家教/i));
           if (idLineIndex >= 0) {
             idLine = lines[idLineIndex].trim();
           }
@@ -396,6 +387,9 @@ export default function AdminDashboard({
       let rawContent = '';
       if (idLine) {
         rawContent = block.replace(idLine, '').trim();
+        if (rawContent.startsWith('：') || rawContent.startsWith(':')) {
+          rawContent = rawContent.substring(1).trim();
+        }
       } else {
         rawContent = block.trim();
       }
@@ -427,7 +421,7 @@ export default function AdminDashboard({
       }
       
       // Special handling for "浦东" -> "浦东新区"
-      if (!area && (block.includes('浦东') || block.includes('陆家嘴') || block.includes('张江') || block.includes('金桥') || block.includes('外高桥') || block.includes('南汇'))) {
+      if (!area && (block.includes('浦东') || block.includes('陆家嘴') || block.includes('张江') || block.includes('金桥') || block.includes('外高桥') || block.includes('南汇') || block.includes('御桥') || block.includes('康桥'))) {
         area = '浦东新区';
       }
       
@@ -437,20 +431,76 @@ export default function AdminDashboard({
       let mathGrade = '其他';
       let gradeDetail = '';
       
-      // Check for age patterns like "xx岁" where xx < 10
-      const ageMatch = block.match(/(\d{1,2})岁/);
-      if (ageMatch) {
-        const age = parseInt(ageMatch[1], 10);
-        if (age > 0 && age < 10) {
+      // Helper function to extract bracket field content
+      const extractBracketField = (block: string, fieldNames: string[]): string => {
+        for (const name of fieldNames) {
+          const regex = new RegExp(`【${name}】\\s*([\\s\\S]*?)(?=\\s*\\n\\s*【|\\s*\\n\\s*$|\\s*$)`, 'i');
+          const match = block.match(regex);
+          if (match) {
+            let result = match[1].trim();
+            result = result.replace(/\s+/g, ' ');
+            result = result.replace(/^[\s】]+/, '');
+            return result;
+          }
+        }
+        return '';
+      };
+      
+      // First, try to extract grade from bracket fields (【年级性别】, 【年级】, 【学生年级】)
+      const gradeText = extractBracketField(block, ['年级性别', '年级', '学生年级']);
+      
+      if (gradeText) {
+        const cleanGradeText = gradeText.replace(/(男孩|女孩|男生|女生|男|女)/g, '').trim();
+        gradeDetail = cleanGradeText;
+        
+        const hasJuniorHigh = /初二升初三|初三|九年级|九升|八升九|初一|初二|七年级|八年级|六升七|七升八|初中|预初|开学初二|开学7年级|升初二年级|7升8/.test(cleanGradeText);
+        const hasPrimary = /小升初|五升六|四年级|五年级|六年级|一升二|二升三|三升四|四升五|小学|新[1-6]|现[1-6]|一年级|二年级|三年级|准五年级|开学三年级|开学五年级/.test(cleanGradeText);
+        const hasHigh = /高一升高二|高二升高三|新高三|高三|高二年级|十[一二三]年级/.test(cleanGradeText);
+        const hasKindergarten = /幼儿园|中班|小班|大班|幼升小|早教/.test(cleanGradeText);
+        
+        if (hasKindergarten) {
           mathGrade = '幼儿';
-          gradeDetail = `${age}岁`;
+        } else if (hasHigh) {
+          mathGrade = '高中';
+        } else if (hasJuniorHigh && hasPrimary) {
+          mathGrade = '初中';
+        } else if (hasJuniorHigh) {
+          mathGrade = '初中';
+        } else if (hasPrimary) {
+          mathGrade = '小学';
+        } else if (/高一|高二|高三|高中|高考|十[一二三]/.test(cleanGradeText)) {
+          mathGrade = '高中';
+        } else {
+          const digitMatch = cleanGradeText.match(/(\d+)\s*年级?/);
+          if (digitMatch) {
+            const gradeNum = parseInt(digitMatch[1], 10);
+            if (gradeNum >= 1 && gradeNum <= 6) {
+              mathGrade = '小学';
+            } else if (gradeNum >= 7 && gradeNum <= 9) {
+              mathGrade = '初中';
+            } else if (gradeNum >= 10 && gradeNum <= 12) {
+              mathGrade = '高中';
+            }
+          }
+        }
+      }
+      
+      // Check for age patterns like "xx岁" where xx < 10
+      if (mathGrade === '其他') {
+        const ageMatch = block.match(/(\d{1,2})岁/);
+        if (ageMatch) {
+          const age = parseInt(ageMatch[1], 10);
+          if (age > 0 && age < 10) {
+            mathGrade = '幼儿';
+            gradeDetail = `${age}岁`;
+          }
         }
       }
       
       // Check for kindergarten/early education keywords
-      if (mathGrade === '其他' && (block.includes('幼') || block.includes('启蒙') || block.includes('幼儿园') || block.includes('学前'))) {
+      if (mathGrade === '其他' && (block.includes('幼儿园') || block.includes('启蒙') || block.includes('学前') || block.includes('大班') || block.includes('中班') || block.includes('小班'))) {
         mathGrade = '幼儿';
-        const kindergartenMatch = block.match(/(小班|中班|大班|学前班)/);
+        const kindergartenMatch = block.match(/(小班|中班|大班|学前班|幼儿园)/);
         if (kindergartenMatch) {
           gradeDetail = kindergartenMatch[1];
         }
@@ -461,39 +511,46 @@ export default function AdminDashboard({
         mathGrade = '成人';
       }
       
-      // Check for grade level keywords with detailed extraction
+      // Check for grade level keywords with detailed extraction (fallback)
       if (mathGrade === '其他') {
-        // 小学判断：包含小学关键词或小学年级升级关键词
-        if (block.includes('小学') || 
-            block.includes('一年级') || block.includes('二年级') || 
-            block.includes('三年级') || block.includes('四年级') || 
-            block.includes('五年级') || block.includes('六年级') ||
-            block.match(/\d年级/)?.[0]?.startsWith('1') ||
-            block.match(/\d年级/)?.[0]?.startsWith('2') ||
-            block.match(/\d年级/)?.[0]?.startsWith('3') ||
-            block.match(/\d年级/)?.[0]?.startsWith('4') ||
-            block.match(/\d年级/)?.[0]?.startsWith('5') ||
-            block.includes('二升三') || block.includes('三升四') || 
-            block.includes('四升五') || block.includes('五升六')) {
+        const newGradeMatch = block.match(/(?:学生年级|年级)[:：\s]*(新|现)(\d+)/);
+        if (newGradeMatch) {
+          const prefix = newGradeMatch[1];
+          const gradeNum = parseInt(newGradeMatch[2], 10);
+          gradeDetail = `${prefix}${gradeNum}`;
+          if (gradeNum >= 1 && gradeNum <= 6) {
+            mathGrade = '小学';
+          } else if (gradeNum >= 7 && gradeNum <= 9) {
+            mathGrade = '初中';
+          } else if (gradeNum >= 10 && gradeNum <= 12) {
+            mathGrade = '高中';
+          }
+        } else if (block.includes('初三') || block.includes('九年级')) {
+          mathGrade = '初中';
+          gradeDetail = '初三';
+        } else if (block.includes('小学') || 
+                   block.includes('一年级') || block.includes('二年级') || 
+                   block.includes('三年级') || block.includes('四年级') || 
+                   block.includes('五年级') || block.includes('六年级') ||
+                   block.includes('二升三') || block.includes('三升四') || 
+                   block.includes('四升五') || block.includes('五升六') ||
+                   block.includes('小升初')) {
           mathGrade = '小学';
           const gradeMatch = block.match(/(一|二|三|四|五|六)年级/) || 
                             block.match(/(\d)年级/) ||
-                            block.match(/(二升三|三升四|四升五|五升六)/);
+                            block.match(/(二升三|三升四|四升五|五升六|小升初)/);
           if (gradeMatch) {
             gradeDetail = gradeMatch[0];
           }
-        // 初中判断：包含初中关键词或初中年级升级关键词
         } else if (block.includes('初中') || block.includes('初一') || 
-                   block.includes('初二') || block.includes('初三') ||
+                   block.includes('初二') ||
                    block.includes('七年级') || block.includes('八年级') || 
                    block.includes('九年级') ||
-                   block.includes('预初一') || block.includes('预备初一') ||
                    block.includes('六升七') || block.includes('七升八') || 
                    block.includes('八升九')) {
           mathGrade = '初中';
-          const gradeMatch = block.match(/(初一|初二|初三|七|八|九)年级/) ||
-                            block.match(/(六升七|七升八|八升九)/) ||
-                            block.match(/(预初一|预备初一)/);
+          const gradeMatch = block.match(/(初一|初二|七|八|九)年级/) ||
+                            block.match(/(六升七|七升八|八升九)/);
           if (gradeMatch) {
             gradeDetail = gradeMatch[0];
           }
@@ -511,12 +568,12 @@ export default function AdminDashboard({
 
       let subName = '';
       
-      // Extract subject from 辅导科目 field if present
-      const subjectMatch = block.match(/(?:辅导科目|科目|学科)[:：\s]*(.+?)(?:[，,。\n]|$)/);
-      let subjectContent = '';
-      if (subjectMatch) {
-        subjectContent = subjectMatch[1].trim();
-      }
+      // Extract subject from bracket fields or colon fields
+      const subjectContent = extractBracketField(block, ['补习科目', '辅导科目', '科目', '学科']) || 
+        (() => {
+          const subjectMatch = block.match(/(?:辅导科目|科目|学科)[:：\s]*(.+?)(?:[，,。\n]|$)/);
+          return subjectMatch ? subjectMatch[1].trim() : '';
+        })();
       
       // Parse subject content to extract standard subjects
       if (subjectContent) {
@@ -525,6 +582,30 @@ export default function AdminDashboard({
         // Check for 全科 first
         if (subjectContent.includes('全科')) {
           matchedSubjects.push('全科');
+        }
+        
+        // Common compound subject abbreviations
+        const subjectPatterns = [
+          { pattern: /数理化|数学物理化学/, subjects: ['数学', '物理', '化学'] },
+          { pattern: /语数英|语文数学英语/, subjects: ['语文', '数学', '英语'] },
+          { pattern: /物化|物理化学/, subjects: ['物理', '化学'] },
+          { pattern: /数英|数学英语|英数/, subjects: ['数学', '英语'] },
+          { pattern: /语文英语|语英/, subjects: ['语文', '英语'] },
+          { pattern: /数学/, subjects: ['数学'] },
+          { pattern: /英语/, subjects: ['英语'] },
+          { pattern: /语文/, subjects: ['语文'] },
+          { pattern: /物理/, subjects: ['物理'] },
+          { pattern: /化学/, subjects: ['化学'] },
+        ];
+        
+        for (const p of subjectPatterns) {
+          if (p.pattern.test(subjectContent)) {
+            for (const s of p.subjects) {
+              if (!matchedSubjects.includes(s)) {
+                matchedSubjects.push(s);
+              }
+            }
+          }
         }
         
         // Check for subjects from SUBJECTS list
@@ -536,16 +617,44 @@ export default function AdminDashboard({
           }
         }
         
-        // Check for character-based matches
-        if (subjectContent.includes('数') && !matchedSubjects.includes('数学')) matchedSubjects.push('数学');
-        if (subjectContent.includes('英') && !matchedSubjects.includes('英语')) matchedSubjects.push('英语');
-        if (subjectContent.includes('语') && !matchedSubjects.includes('语文') && !subjectContent.includes('英语')) matchedSubjects.push('语文');
-        if (subjectContent.includes('理') && !matchedSubjects.includes('物理')) matchedSubjects.push('物理');
-        if (subjectContent.includes('化') && !matchedSubjects.includes('化学')) matchedSubjects.push('化学');
-        if (subjectContent.includes('陪') && !matchedSubjects.includes('陪读')) matchedSubjects.push('陪读');
+        // 幼儿年级不进行单字匹配，避免误识别
+        if (mathGrade !== '幼儿') {
+          if (subjectContent.includes('数') && !matchedSubjects.includes('数学') && !subjectContent.includes('阅读理解')) {
+            matchedSubjects.push('数学');
+          }
+          if (subjectContent.includes('英') && !matchedSubjects.includes('英语')) {
+            matchedSubjects.push('英语');
+          }
+          if (subjectContent.includes('语') && !matchedSubjects.includes('语文') && !subjectContent.includes('英语')) {
+            matchedSubjects.push('语文');
+          }
+          if (subjectContent.includes('理') && !matchedSubjects.includes('物理') && !subjectContent.includes('阅读理解') && !subjectContent.includes('文科') && !subjectContent.includes('理工')) {
+            matchedSubjects.push('物理');
+          }
+          if (subjectContent.includes('化') && !matchedSubjects.includes('化学')) {
+            matchedSubjects.push('化学');
+          }
+        }
         
-        // If matched subjects found, join them; otherwise use original content
-        subName = matchedSubjects.length > 0 ? matchedSubjects.join('') : subjectContent;
+        if (subjectContent.includes('作业辅导') || subjectContent.includes('陪读')) {
+          if (!matchedSubjects.includes('作业辅导') && subjectContent.includes('作业')) {
+            matchedSubjects.push('作业辅导');
+          }
+          if (subjectContent.includes('陪读') && !matchedSubjects.includes('陪读')) {
+            matchedSubjects.push('陪读');
+          }
+        }
+        
+        if (subjectContent.includes('陪') && !matchedSubjects.includes('陪读')) {
+          matchedSubjects.push('陪读');
+        }
+        
+        if (matchedSubjects.length > 0) {
+          subName = matchedSubjects.join('');
+        } else {
+          const hasValidSubjectKeyword = /数学|英语|语文|物理|化学|全科|陪读|艺术|体育|历史|地理|生物|政治|奥数|道法/.test(subjectContent);
+          subName = hasValidSubjectKeyword ? subjectContent : '未识别';
+        }
       } else {
         // Only use matching logic when no explicit subject field is found
         const matchedSubjects: string[] = [];
@@ -579,7 +688,7 @@ export default function AdminDashboard({
           const charMatches: string[] = [];
           if (block.includes('数')) charMatches.push('数学');
           if (block.includes('英')) charMatches.push('英语');
-          if (block.includes('理')) charMatches.push('物理');
+          if (block.includes('理') && !block.includes('阅读理解')) charMatches.push('物理');
           if (block.includes('化')) charMatches.push('化学');
           if (block.includes('语')) charMatches.push('语文');
           if (block.includes('史')) charMatches.push('历史');
@@ -605,37 +714,56 @@ export default function AdminDashboard({
       let priceMax = 0;
       let priceTextDisplay = '';
       
-      // Only extract price from lines containing price-related keywords to avoid matching order IDs
-      const priceLines = block.split('\n').filter(line => 
-        line.includes('元') || line.includes('薪资') || line.includes('时薪') || 
-        line.includes('报酬') || line.includes('价格') || line.includes('薪水') ||
-        line.includes('/h') || line.includes('小时') || line.includes('天') || line.includes('月') ||
-        line.includes('课')
-      );
-      const priceText = priceLines.join(' ');
+      const salaryText = extractBracketField(block, ['补习薪资', '课时费', '薪资', '时薪', '报酬', '价格', '薪水']);
+      let priceText = '';
+      
+      if (salaryText) {
+        priceText = salaryText;
+      } else {
+        const priceLines = block.split('\n').filter(line => 
+          line.includes('元') || line.includes('薪资') || line.includes('时薪') || 
+          line.includes('报酬') || line.includes('价格') || line.includes('薪水') ||
+          line.includes('/h') || line.includes('小时') || line.includes('天') || line.includes('月') ||
+          line.includes('课')
+        );
+        priceText = priceLines.join(' ');
+      }
       
       // Pattern to capture salary range with unit (e.g., "5000-7000/月", "100-130/h", "100-120元/小时")
-      const rangePattern = /(\d{2,5})-(\d{2,5})\s*元?\s*\/?\s*(h|月|天|小时)?/i;
+      const rangePattern = /(\d{2,5})-(\d{2,5})\s*元?\s*\/?\s*(\d+)?\s*(h|月|天|小时|次|课)?/i;
       const rangeMatch = priceText.match(rangePattern);
       
       if (rangeMatch) {
-        // Extract range values
         const minVal = parseInt(rangeMatch[1], 10);
         const maxVal = parseInt(rangeMatch[2], 10);
-        const unit = rangeMatch[3] || '小时';
-        priceMin = minVal;
-        priceMax = maxVal;
-        priceTextDisplay = `${minVal}-${maxVal}/h`;
-        priceRate = maxVal;
-        // Convert to hourly equivalent for sorting
-        if (unit === '月') {
-          priceRate = Math.round(maxVal / (22 * 8));
-        } else if (unit === '天') {
+        const duration = rangeMatch[3];
+        const unit = rangeMatch[4] || '小时';
+        
+        if (unit === '天') {
+          priceTextDisplay = `${minVal}-${maxVal}/天`;
           priceRate = Math.round(maxVal / 8);
+        } else if (unit === '月') {
+          priceTextDisplay = `${minVal}-${maxVal}/月`;
+          priceRate = Math.round(maxVal / (22 * 8));
+        } else if (unit === '次' || unit === '课') {
+          priceTextDisplay = `${minVal}-${maxVal}/${unit}`;
+          priceRate = Math.round(maxVal / 2);
+        } else if (duration) {
+          const durNum = parseInt(duration, 10);
+          priceTextDisplay = `${minVal}-${maxVal}/${duration}小时`;
+          priceRate = Math.round(maxVal / durNum);
+        } else {
+          priceTextDisplay = `${minVal}-${maxVal}/h`;
+          priceRate = maxVal;
         }
       } else {
         // Try single value patterns
         const singlePatterns = [
+          /(\d{1,5})\s*K\s*\/\s*月/i,
+          /(\d{1,5})K\/月/i,
+          /(\d{1,5})\s*K\/月/i,
+          /(\d{1,5})\s*元?\s*\/\s*(\d+)\s*小时/i,
+          /(\d{1,5})\s*\/\s*(\d+)\s*小时/i,
           /(\d{2,5})\s*元\s*\/\s*h/i,           // xx元/h
           /(\d{2,5})\s*元\s*\/\s*小时/i,        // xx元/小时
           /(\d{2,5})\s*\/\s*小时/i,             // xx/小时 (without 元)
@@ -669,14 +797,24 @@ export default function AdminDashboard({
         for (const pattern of singlePatterns) {
           const match = priceText.match(pattern);
           if (match) {
-            const rawPrice = parseInt(match[1], 10);
+            const fullMatchStr = match[0];
+            let rawPrice = parseInt(match[1], 10);
+            if (fullMatchStr.includes('K')) {
+              rawPrice = rawPrice * 1000;
+            }
             priceRate = rawPrice;
             priceMin = rawPrice;
             priceMax = rawPrice;
-            // Extract the full match for display
-            const fullMatchStr = match[0];
             // Clean up and format the display text
-            if (fullMatchStr.includes('/h') && !fullMatchStr.includes('/2h') && !fullMatchStr.includes('/1.5h')) {
+            if (fullMatchStr.includes('K') && fullMatchStr.includes('/月')) {
+              priceTextDisplay = `${match[1]}K/月`;
+              priceRate = Math.round(rawPrice / (22 * 8));
+            } else if (fullMatchStr.match(/\/\d+\s*小时/)) {
+              const hourMatch = fullMatchStr.match(/\/\s*(\d+)\s*小时/);
+              const hours = parseInt(hourMatch[1], 10);
+              priceTextDisplay = `${match[1]}/${hours}小时`;
+              priceRate = Math.round(rawPrice / hours);
+            } else if (fullMatchStr.includes('/h') && !fullMatchStr.includes('/2h') && !fullMatchStr.includes('/1.5h')) {
               priceTextDisplay = `${match[1]}/h`;
             } else if (fullMatchStr.includes('/2h')) {
               // xx/2h or xx元/2h - convert to hourly rate
@@ -728,47 +866,190 @@ export default function AdminDashboard({
 
       // 6. Address detail
       let addressDetail = '';
-      const addrMatch = block.match(/(?:上课地点|地址|上课地址|辅导地点)[:：\s]*(.+?)(?=\s*[】\|\n]|$)/i);
-      if (addrMatch) {
-        addressDetail = addrMatch[1].trim().replace(/[】\|\s]+$/, '');
+      const addrText = extractBracketField(block, ['补习地址', '上课地点', '地址', '上课地址', '辅导地点']);
+      
+      if (addrText) {
+        addressDetail = addrText.trim();
       } else {
-        // Look for keywords of street or estate
-        const lines = block.split('\n');
-        // 增强地址识别，添加更多关键词
-        const addrLine = lines.find(l => 
-          l.includes('路') || l.includes('街') || l.includes('弄') || 
-          l.includes('小区') || l.includes('公寓') || l.includes('号') ||
-          l.includes('大厦') || l.includes('楼') || l.includes('广场') ||
-          l.includes('镇') || l.includes('村') || l.includes('路')
-        );
-        if (addrLine) {
-          addressDetail = addrLine.replace(/^(?:上课地点|地址|上课地址|辅导地点)[:：\s]*/, '').trim().replace(/[】\|\s]+$/, '');
-          // 如果地址以"】"开头，去掉开头的符号
-          if (addressDetail.startsWith('】')) {
-            addressDetail = addressDetail.substring(1).trim();
-          }
+        const addrMatch = block.match(/(?:上课地点|地址|上课地址|辅导地点)[:：\s]*(.+?)(?=\s*[】\|\n]|$)/i);
+        if (addrMatch) {
+          addressDetail = addrMatch[1].trim().replace(/[】\|\s]+$/, '');
         } else {
-          // 如果没有找到具体地址，但有行政区信息，显示行政区
-          if (area && area !== '线上') {
-            addressDetail = `${area}范围内`;
+          const lines = block.split('\n');
+          const addrLine = lines.find(l => 
+            l.includes('路') || l.includes('街') || l.includes('弄') || 
+            l.includes('小区') || l.includes('公寓') || l.includes('号') ||
+            l.includes('大厦') || l.includes('楼') || l.includes('广场') ||
+            l.includes('镇') || l.includes('村')
+          );
+          if (addrLine) {
+            addressDetail = addrLine.replace(/^(?:上课地点|地址|上课地址|辅导地点)[:：\s]*/, '').trim().replace(/[】\|\s]+$/, '');
+            if (addressDetail.startsWith('】')) {
+              addressDetail = addressDetail.substring(1).trim();
+            }
           } else {
-            addressDetail = '根据上课地点待定';
+            if (area && area !== '线上') {
+              addressDetail = `${area}范围内`;
+            } else {
+              addressDetail = '根据上课地点待定';
+            }
           }
         }
       }
 
       // 7. Frequency/Schedule
       let scheduleText = '每周2次，每次2小时';
-      const freqMatch = block.match(/(?:上课时间|频次|时间)[:：\s]*(.+?)(?=\s*[】\|\n]|$)/i);
-      if (freqMatch) {
-        scheduleText = freqMatch[1].trim().replace(/[】\|\s]+$/, '');
+      const timeText = extractBracketField(block, ['补习时间', '上课时间', '时间', '每周几次', '频次']);
+      
+      if (timeText) {
+        const cnNumMap: Record<string, number> = { '一': 1, '二': 2, '两': 2, '三': 3, '四': 4, '五': 5, '六': 6, '七': 7, '八': 8, '九': 9, '十': 10, '半': 0.5 };
+        
+        const parseNum = (str: string | undefined): number | null => {
+          if (!str) return null;
+          if (str in cnNumMap) return cnNumMap[str];
+          const num = parseFloat(str);
+          return isNaN(num) ? null : num;
+        };
+        
+        const freqPatterns = [
+          { pattern: /(一周|每周)\s*(\d+)[-~](\d+)\s*次/i, type: 'freq_range' },
+          { pattern: /(一周|每周)\s*(\d+)\s*次/i, type: 'freq' },
+          { pattern: /(\d+)[-~](\d+)\s*次\s*(每周|一周)/i, type: 'freq_range_rev' },
+          { pattern: /(\d+)\s*次\s*(每周|一周)/i, type: 'freq_rev' },
+          { pattern: /每天\s*(\d+\.?\d*|一|二|两|三|四|五|六|七|八|九|十|半)[-~至到]?\s*(\d+\.?\d*|一|二|两|三|四|五|六|七|八|九|十|半)?\s*小时/i, type: 'daily_range' },
+          { pattern: /每次\s*(\d+\.?\d*|一|二|两|三|四|五|六|七|八|九|十|半)[-~至到]?\s*(\d+\.?\d*|一|二|两|三|四|五|六|七|八|九|十|半)?\s*小时/i, type: 'per_time' },
+          { pattern: /一次\s*(\d+\.?\d*|一|二|两|三|四|五|六|七|八|九|十|半)[-~至到]?\s*(\d+\.?\d*|一|二|两|三|四|五|六|七|八|九|十|半)?\s*小时/i, type: 'per_time' },
+          { pattern: /(一周一次|一周两次|一周三次|一周四次|一周五次|一周六次|一周七次)/i, type: 'freq_cn' },
+          { pattern: /(每周一次|每周两次|每周三次|每周四次|每周五次|每周六次|每周七次)/i, type: 'freq_cn' },
+          { pattern: /周一到周五|周一至周五|工作日/i, type: 'weekday' },
+          { pattern: /(一周|每周)\s*(\d+)\s*天/i, type: 'days_week' },
+        ];
+        
+        let freqText = '';
+        let durationText = '';
+        
+        for (const { pattern, type } of freqPatterns) {
+          const freqMatch = timeText.match(pattern);
+          if (freqMatch) {
+            if (type === 'freq_range') {
+              freqText = `${freqMatch[1]}${freqMatch[2]}-${freqMatch[3]}次`;
+            } else if (type === 'freq_range_rev') {
+              freqText = `${freqMatch[3]}${freqMatch[1]}-${freqMatch[2]}次`;
+            } else if (type === 'freq') {
+              freqText = `${freqMatch[1]}${freqMatch[2]}次`;
+            } else if (type === 'freq_rev') {
+              freqText = `${freqMatch[2]}${freqMatch[1]}次`;
+            } else if (type === 'daily_range') {
+              const n1 = parseNum(freqMatch[1]);
+              const n2 = parseNum(freqMatch[2]);
+              if (n2) {
+                durationText = `每天${n1}-${n2}小时`;
+              } else if (n1) {
+                durationText = `每天${n1}小时`;
+              }
+            } else if (type === 'per_time') {
+              const n1 = parseNum(freqMatch[1]);
+              const n2 = parseNum(freqMatch[2]);
+              if (n2) {
+                durationText = `每次${n1}-${n2}小时`;
+              } else if (n1) {
+                durationText = `每次${n1}小时`;
+              }
+            } else if (type === 'freq_cn') {
+              freqText = freqMatch[1];
+            } else if (type === 'weekday') {
+              freqText = '每周5天（工作日）';
+            } else if (type === 'days_week') {
+              freqText = `${freqMatch[1]}${freqMatch[2]}天`;
+            }
+          }
+        }
+        
+        if (freqText && durationText) {
+          scheduleText = `${freqText}，${durationText}`;
+        } else if (freqText) {
+          scheduleText = freqText;
+        } else if (durationText) {
+          scheduleText = durationText;
+        } else {
+          scheduleText = timeText.length > 30 ? timeText.substring(0, 30) + '...' : timeText;
+        }
+      } else {
+        const cleanBlock = block.replace(/#[^\s]+/g, '').trim();
+        const freqPatterns = [
+          /(一周|每周)\s*(\d+)\s*次/i,
+          /(\d+)\s*次\s*(每周|一周)/i,
+          /(\d+)\s*次\s*\/\s*周/i,
+          /(\d+)\s*次\/周/i,
+          /每天\s*(\d+)[-~]\s*(\d+)\s*小时/i,
+          /每天\s*(\d+)\s*小时/i,
+          /每次\s*(\d+)\s*小时/i,
+          /(\d+)\s*小时\s*每次/i,
+          /(一周一次|一周两次|一周三次|一周四次|一周五次)/i,
+          /(每周一次|每周两次|每周三次|每周四次|每周五次)/i,
+          /(?:每周几次|上课时间|频次|时间)[:：\s]*(.+?)(?=\s*[】\|\n]|$)/i
+        ];
+        
+        for (const pattern of freqPatterns) {
+          const freqMatch = cleanBlock.match(pattern);
+          if (freqMatch) {
+            if (freqMatch.length >= 3) {
+              const first = freqMatch[1];
+              const second = freqMatch[2];
+              if (['每周', '一周'].includes(first)) {
+                scheduleText = `${first}${second}次`;
+              } else if (['每周', '一周'].includes(second)) {
+                scheduleText = `${second}${first}次`;
+              } else if (['小时'].includes(second)) {
+                scheduleText = `每天${first}-${second}`;
+              } else if (second && !isNaN(second)) {
+                scheduleText = `每天${first}-${second}小时`;
+              } else {
+                let text = freqMatch[1].trim().replace(/[】\|\s]+$/, '');
+                text = text.replace(/#[^\s]+/g, '').trim();
+                if (text.length > 20) {
+                  const hourMatch = text.match(/(\d+)[-~](\d+)\s*小时/);
+                  if (hourMatch) {
+                    text = `每天${hourMatch[1]}-${hourMatch[2]}小时`;
+                  } else {
+                    text = text.substring(0, 20) + '...';
+                  }
+                }
+                scheduleText = text;
+              }
+            } else {
+              let text = freqMatch[1].trim().replace(/[】\|\s]+$/, '');
+              text = text.replace(/#[^\s]+/g, '').trim();
+              if (cleanBlock.includes('每天') && text.match(/^\d+$/)) {
+                scheduleText = `每天${text}小时`;
+              } else if (text.length > 20) {
+                const hourMatch = text.match(/(\d+)[-~]?\s*(\d*)\s*小时/);
+                if (hourMatch) {
+                  text = hourMatch[2] ? `每天${hourMatch[1]}-${hourMatch[2]}小时` : `每天${hourMatch[1]}小时`;
+                } else {
+                  text = text.substring(0, 20) + '...';
+                }
+                scheduleText = text;
+              } else {
+                scheduleText = text;
+              }
+            }
+            break;
+          }
+        }
       }
 
       // 8. Teacher requirements
       let teachReq = '男女教员均可，要求相关辅导技能稳固，沟通表达亲近。';
-      const reqMatch = block.match(/(?:教员要求|要求)[:：\s]*(.+?)(?=\s*[】\|\n]|$)/i);
-      if (reqMatch) {
-        teachReq = reqMatch[1].trim().replace(/[】\|\s]+$/, '');
+      const reqText = extractBracketField(block, ['老师要求', '教员要求', '要求']);
+      
+      if (reqText) {
+        teachReq = reqText.replace(/#[^\s]+/g, '').trim();
+      } else {
+        const reqMatch = block.match(/(?:教员要求|要求)[:：\s]*(.+?)(?=\s*[】\|\n]|$)/i);
+        if (reqMatch) {
+          teachReq = reqMatch[1].trim().replace(/[】\|\s]+$/, '');
+        }
       }
 
       // 9. Coordinate translation mapping
@@ -801,6 +1082,7 @@ export default function AdminDashboard({
         contactTeacher: 'Ken06103',
         publishTime: timestampStr,
         rawContent: rawContent,
+        originalBlock: block,
         idLine: idLine
       };
 
@@ -846,7 +1128,8 @@ export default function AdminDashboard({
           source: '微信解析',
           raw_content: draft.rawContent,
           status: 'draft',
-          order_no: customOrderNo
+          order_no: customOrderNo,
+          frequency: draft.frequency
         });
         draft.id = createdOrder.id;
         draft.order_no = customOrderNo;
@@ -872,7 +1155,7 @@ export default function AdminDashboard({
         console.error('后端响应:', err.response?.data);
         const errorMsg = err.response?.data?.error || (err.response?.data?.errors?.join ? err.response?.data.errors.join(', ') : err.response?.data?.errors) || err.message || '创建订单失败';
         const orderNo = draft.order_no || draft.orderId || extractOrderNo(draft.rawContent) || '未知编号';
-        failedBlocks.push({ block: draft.rawContent, orderNo, reason: errorMsg });
+        failedBlocks.push({ block: draft.rawContent || '', orderNo, reason: errorMsg });
       }
     }
 
@@ -904,7 +1187,12 @@ export default function AdminDashboard({
 
     // 如果有失败的订单，只保留失败的内容在粘贴框；全部成功时清空
     if (failedBlocks.length > 0) {
-      setRawText(failedBlocks.map(f => f.block).join('\n\n'));
+      const failedOrderNos = failedBlocks.map(f => f.orderNo);
+      const originalBlocks = parsedList.filter(d => {
+        const draftOrderNo = extractOrderNo(d.originalBlock || d.rawContent);
+        return failedOrderNos.includes(draftOrderNo);
+      }).map(d => d.originalBlock || d.rawContent || '');
+      setRawText(originalBlocks.join('\n\n'));
     } else {
       setRawText('');
     }
@@ -1042,7 +1330,8 @@ export default function AdminDashboard({
           source: '管理员手动创建',
           raw_content: item.rawContent,
           status: 'draft',
-          order_no: item.order_no || item.orderId
+          order_no: item.order_no || item.orderId,
+          frequency: item.frequency
         });
         
         // 更新本地草稿的id为后端返回的uuid
@@ -1087,7 +1376,7 @@ export default function AdminDashboard({
         },
         studentDesc: order.title || '学员信息待完善',
         studentDetail: order.raw_content || order.requirements || '暂无详细信息',
-        frequency: '每周2次，每次2小时',
+        frequency: order.frequency || '每周2次，每次2小时',
         address: order.address,
         requirements: order.requirements || '男女教员均可',
         price: order.salary_max || order.salary_min || 0,
@@ -1264,7 +1553,7 @@ export default function AdminDashboard({
           },
           studentDesc: order.title || '学员信息待完善',
           studentDetail: order.raw_content || order.requirements || '暂无详细信息',
-          frequency: '每周2次，每次2小时',
+          frequency: order.frequency || '每周2次，每次2小时',
           address: order.address,
           requirements: order.requirements || '男女教员均可',
           price: order.salary_max || order.salary_min || 0,

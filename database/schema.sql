@@ -60,6 +60,7 @@ CREATE TABLE IF NOT EXISTS orders (
     -- 教学信息
     teaching_type VARCHAR(50) NOT NULL,
     requirements TEXT,
+    frequency TEXT,
     
     -- 来源
     source VARCHAR(100) NOT NULL,

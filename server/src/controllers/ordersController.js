@@ -217,7 +217,7 @@ async function createOrder(req, res) {
       salary_min, salary_max, contact_fee,
       district, address, latitude, longitude,
       teaching_type, requirements, source, raw_content,
-      order_no
+      order_no, frequency
     } = req.body;
     
     const newOrder = await store.orders.create({
@@ -225,7 +225,7 @@ async function createOrder(req, res) {
       salary_min, salary_max, contact_fee,
       district, address, latitude, longitude,
       teaching_type, requirements, source, raw_content,
-      order_no
+      order_no, frequency
     });
     
     res.status(201).json({
@@ -280,7 +280,7 @@ async function updateOrder(req, res) {
       salary_min, salary_max, contact_fee,
       district, address, latitude, longitude,
       teaching_type, requirements, source, raw_content,
-      contact_status
+      contact_status, frequency
     } = req.body;
     
     const updatedOrder = await store.orders.update(id, {
@@ -288,7 +288,7 @@ async function updateOrder(req, res) {
       salary_min, salary_max, contact_fee,
       district, address, latitude, longitude,
       teaching_type, requirements, source, raw_content,
-      contact_status
+      contact_status, frequency
     });
     
     res.json({

@@ -46,7 +46,7 @@ async function initStore() {
               salary_min, salary_max, contact_fee,
               district, address, latitude, longitude,
               teaching_type, requirements, source, raw_content,
-              order_no
+              order_no, frequency
             } = data;
             
             console.log('Creating order with data:', {
@@ -84,14 +84,15 @@ async function initStore() {
                 salary_min, salary_max, contact_fee,
                 district, address, latitude, longitude,
                 teaching_type, requirements, source, raw_content,
-                status, geo_status
+                frequency, status, geo_status
               ) VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'draft', 'pending'
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, 'draft', 'pending'
               ) RETURNING *`,
               [(order_no === undefined || order_no === null) ? generate_order_no() : order_no, title, subject, education_stage, grade_detail,
                salary_min ?? null, salary_max ?? null, contact_fee ?? null,
                district, address, finalLat, finalLng,
-               teaching_type, requirements ?? null, source, raw_content ?? null]
+               teaching_type, requirements ?? null, source, raw_content ?? null,
+               frequency ?? null]
             );
             return result.rows[0];
           } catch (err) {
@@ -109,7 +110,7 @@ async function initStore() {
             'salary_min', 'salary_max', 'contact_fee',
             'district', 'address', 'latitude', 'longitude',
             'teaching_type', 'requirements', 'source', 'raw_content',
-            'contact_status'
+            'contact_status', 'frequency'
           ];
           
           for (const field of allowedFields) {

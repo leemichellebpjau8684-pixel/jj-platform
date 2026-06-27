@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useMemo } from 'react';
-import { Compass, RotateCcw, MapPin, Navigation, Search, X, Phone, Clock, DollarSign, Map, ChevronRight, CheckCircle2, MessageSquare } from 'lucide-react';
+import { Compass, RotateCcw, MapPin, X, Phone, Clock, DollarSign, Map, ChevronRight, CheckCircle2, MessageSquare } from 'lucide-react';
 import { Landmark, Order, Coordinate } from '../types';
-import { loadAMapScript, AMAP_CONFIG, forwardGeocode, reverseGeocode } from '../services/amap';
+import { loadAMapScript, AMAP_CONFIG, forwardGeocode } from '../services/amap';
 import { getDistance } from '../utils';
 
 interface ShanghaiRadarMapProps {
@@ -30,11 +30,6 @@ export default function ShanghaiRadarMap({
   
   const [isLoaded, setIsLoaded] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
-  
-  const [userAddressInput, setUserAddressInput] = useState('');
-  const [isSearching, setIsSearching] = useState(false);
-  const [searchError, setSearchError] = useState<string | null>(null);
-  const [showManualLocation, setShowManualLocation] = useState(false);
 
   const [geocodedCache, setGeocodedCache] = useState<Record<string, { lat: number; lng: number }>>({});
   const geocodedCacheRef = useRef<Record<string, { lat: number; lng: number }>>({});
@@ -46,88 +41,6 @@ export default function ShanghaiRadarMap({
   const infoWindowRef = useRef<any>(null);
 
   const [selectedMapOrder, setSelectedMapOrder] = useState<Order | null>(null);
-
-  const handleSearchAddress = async () => {
-    if (!userAddressInput.trim()) {
-      setSearchError('请输入地址');
-      return;
-    }
-    
-    setIsSearching(true);
-    setSearchError(null);
-    
-    try {
-      const result = await forwardGeocode(userAddressInput.trim(), { district: '上海市' });
-      const newLandmark: Landmark = {
-        id: 'custom_' + Date.now(),
-        name: result.name || userAddressInput.trim(),
-        address: result.address,
-        coordinate: result.coordinate,
-        type: 'custom',
-      };
-      
-      onUpdateLandmark(newLandmark);
-      setUserAddressInput('');
-      setShowManualLocation(false);
-      
-      if (mapRef.current) {
-        mapRef.current.panTo([result.coordinate.lng, result.coordinate.lat]);
-        mapRef.current.setZoom(14);
-      }
-    } catch (error) {
-      setSearchError('无法找到该地址，请尝试更详细的地址');
-      console.error('Geocode error:', error);
-    } finally {
-      setIsSearching(false);
-    }
-  };
-
-  const handleGpsLocate = async () => {
-    setIsSearching(true);
-    setSearchError(null);
-    
-    if (!navigator.geolocation) {
-      setSearchError('您的浏览器不支持定位功能');
-      setIsSearching(false);
-      return;
-    }
-    
-    navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        const { latitude, longitude } = position.coords;
-        
-        try {
-          const result = await reverseGeocode({ lat: latitude, lng: longitude });
-          const newLandmark: Landmark = {
-            id: 'gps_' + Date.now(),
-            name: result.name || '当前定位位置',
-            address: result.address,
-            coordinate: { lat: latitude, lng: longitude },
-            type: 'gps',
-          };
-          
-          onUpdateLandmark(newLandmark);
-          setShowManualLocation(false);
-          
-          if (mapRef.current) {
-            mapRef.current.panTo([longitude, latitude]);
-            mapRef.current.setZoom(15);
-          }
-        } catch (error) {
-          setSearchError('无法解析当前位置');
-          console.error('Reverse geocode error:', error);
-        } finally {
-          setIsSearching(false);
-        }
-      },
-      (error) => {
-        setSearchError('定位失败，请检查定位权限设置');
-        console.error('GPS error:', error);
-        setIsSearching(false);
-      },
-      { timeout: 10000 }
-    );
-  };
 
   useEffect(() => {
     if (!isLoaded) return;
@@ -463,97 +376,6 @@ export default function ShanghaiRadarMap({
 
   return (
     <div className="flex-1 w-full h-full flex flex-col relative bg-neutral-950 font-sans overflow-hidden">
-      <div className="absolute top-3 left-3 bg-neutral-950/90 backdrop-blur border border-neutral-800 p-3 rounded-xl z-30 max-w-xs space-y-2 shadow-2xl select-none">
-        <h4 className="text-xs font-extrabold text-orange-500 tracking-wide flex items-center gap-1.5">
-          <Compass className="w-4 h-4" />
-          <span>附近家教地图</span>
-        </h4>
-        <p className="text-[10px] text-neutral-400 leading-snug">
-          地图显示家教订单位置，点击标记查看详细信息
-        </p>
-
-        {showManualLocation ? (
-          <div className="space-y-2">
-            <div className="relative">
-              <Search className="absolute left-2 top-1.5 w-3.5 h-3.5 text-neutral-500" />
-              <input
-                type="text"
-                value={userAddressInput}
-                onChange={(e) => setUserAddressInput(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleSearchAddress()}
-                placeholder="输入地址搜索..."
-                className="w-full pl-7 pr-3 py-1.5 bg-neutral-800 border border-neutral-700 rounded-lg text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-cyan-500"
-              />
-            </div>
-            {searchError && (
-              <p className="text-[9px] text-red-400">{searchError}</p>
-            )}
-            <div className="flex gap-1.5">
-              <button
-                onClick={handleSearchAddress}
-                disabled={isSearching}
-                className="flex-1 px-3 py-1.5 bg-green-600 hover:bg-green-700 disabled:bg-green-800 text-white text-[10px] font-bold rounded-lg transition flex items-center justify-center gap-1"
-              >
-                {isSearching ? '搜索中...' : '搜索地址'}
-              </button>
-              <button
-                onClick={handleGpsLocate}
-                disabled={isSearching}
-                className="flex-1 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-800 text-white text-[10px] font-bold rounded-lg transition flex items-center justify-center gap-1"
-              >
-                <Navigation className="w-3 h-3" />
-                定位
-              </button>
-            </div>
-            <button
-              onClick={() => {
-                setShowManualLocation(false);
-                setUserAddressInput('');
-                setSearchError(null);
-              }}
-              className="w-full py-1 text-[9px] text-neutral-400 hover:text-neutral-300 transition flex items-center justify-center gap-1"
-            >
-              <X className="w-3 h-3" />
-              取消
-            </button>
-          </div>
-        ) : (
-          <>
-            {currentLandmark ? (
-              <div className="text-[10px] bg-neutral-900 border border-neutral-800/80 p-2 rounded-lg text-neutral-300 font-sans space-y-1">
-                <div className="text-[9px] text-neutral-500 font-semibold tracking-wider uppercase">我的位置:</div>
-                <div className="text-neutral-100 font-bold truncate">{currentLandmark.name}</div>
-                <div className="text-cyan-400 font-bold text-[9.5px] border-t border-neutral-800 pt-1 mt-0.5">
-                  搜索范围: {maxDistance}公里
-                </div>
-              </div>
-            ) : (
-              <div className="text-[10px] bg-red-900/30 border border-red-800/30 p-2 rounded-lg text-red-400 font-sans">
-                <div className="font-semibold">未设置位置</div>
-                <div className="text-[9px] mt-1">请添加您的位置以便查看附近订单</div>
-              </div>
-            )}
-            
-            <button
-              onClick={() => setShowManualLocation(true)}
-              className="w-full py-1.5 bg-neutral-800 hover:bg-neutral-700 text-white text-[10px] font-bold rounded-lg transition flex items-center justify-center gap-1"
-            >
-              <MapPin className="w-3.5 h-3.5" />
-              添加我的位置
-            </button>
-          </>
-        )}
-
-        <div className="pt-1.5 border-t border-neutral-900 text-[9.5px] text-neutral-500 flex justify-between font-medium">
-          <span className="flex items-center gap-1">
-            <span className="w-2 h-2 bg-emerald-500 rounded-full"></span>可接单 ({filteredOrders.length})
-          </span>
-          <span className="flex items-center gap-1">
-            <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>高价单🔥
-          </span>
-        </div>
-      </div>
-
       <div className="absolute top-3 right-3 flex flex-col gap-1.5 z-30 select-none">
         <button 
           onClick={zoomIn} 

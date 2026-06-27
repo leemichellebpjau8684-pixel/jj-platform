@@ -28,6 +28,7 @@ export interface Order {
   contactTeacher: string;
   publishTime: string;
   rawContent: string;
+  originalBlock?: string;
   idLine: string;
   title?: string;
   education_stage?: string;

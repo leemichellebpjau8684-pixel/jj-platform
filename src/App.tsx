@@ -85,7 +85,7 @@ export default function App() {
             },
             studentDesc: order.requirements || order.title || '学员信息待完善',
             studentDetail: order.raw_content || order.requirements || '暂无详细信息',
-            frequency: '每周2次，每次2小时',
+            frequency: order.frequency || '每周2次，每次2小时',
             address: order.address,
             requirements: order.requirements || '男女教员均可',
             price: order.salary_max || order.salary_min || 0,
@@ -1867,7 +1867,7 @@ export default function App() {
                           },
                           studentDesc: order.requirements || order.title || '学员信息待完善',
                           studentDetail: order.raw_content || order.requirements || '暂无详细信息',
-                          frequency: '每周2次，每次2小时',
+                          frequency: order.frequency || '每周2次，每次2小时',
                           address: order.address,
                           requirements: order.requirements || '男女教员均可',
                           price: order.salary_max || order.salary_min || 0,
@@ -1965,7 +1965,7 @@ export default function App() {
                           <button 
                             onClick={(e) => {
                               e.stopPropagation();
-                              navigator.clipboard.writeText(order.id);
+                              navigator.clipboard.writeText(order.rawContent || order.studentDetail || order.id);
                             }}
                             className="flex items-center gap-1 px-2 py-1 bg-gray-100 rounded text-xs text-gray-500 hover:bg-gray-200 transition-colors"
                           >
@@ -2265,16 +2265,290 @@ export default function App() {
 
           </div>
         ) : activeTab === 'map' ? (
-          <ShanghaiRadarMap
-            currentLandmark={currentLandmark}
-            filteredOrders={filteredOrders}
-            selectedOrderId={selectedOrderId}
-            setSelectedOrderId={setSelectedOrderId}
-            maxDistance={advancedFilters.maxDistance}
-            onModifyLandmark={() => setIsLandmarkModalOpen(true)}
-            activeTab={activeTab}
-            onUpdateLandmark={setCurrentLandmark}
-          />
+          <div className="flex-1 w-full h-full flex flex-col relative">
+            <nav className="bg-white px-4 py-3 border-b border-gray-200 flex flex-col gap-2 shrink-0 z-10 shadow-sm">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex gap-1.5 shrink-0 relative items-center">
+                  <button
+                    onClick={() => setIsLandmarkModalOpen(true)}
+                    className="w-8 h-8 bg-orange-500 rounded-full shadow flex items-center justify-center ring-2 ring-white hover:bg-orange-600 transition-colors shrink-0"
+                    title="设置定位"
+                  >
+                    <MapPin className="w-4 h-4 text-white" />
+                  </button>
+
+                  <div className="relative">
+                    <button
+                      onClick={() => {
+                        setIsDistrictDropdownOpen(!isDistrictDropdownOpen);
+                        setIsGradeDropdownOpen(false);
+                        setIsSubjectDropdownOpen(false);
+                        setTempDistricts(selectedDistricts);
+                      }}
+                      className={`px-3 py-2 border rounded text-sm flex items-center justify-between gap-1 hover:bg-gray-50 font-medium transition-all ${
+                        selectedDistricts.length > 0 
+                        ? 'border-orange-500 bg-orange-50/30 text-orange-700' 
+                        : 'bg-gray-50 border-gray-200 text-gray-700'
+                      }`}
+                    >
+                      <span>{selectedDistricts.length === 0 ? '地区' : `地区(${selectedDistricts.length})`}</span>
+                      <ChevronDown className="w-4 h-4 text-gray-400" />
+                    </button>
+                    {isDistrictDropdownOpen && (
+                      <div className="absolute top-8 left-0 w-56 bg-white border border-gray-200 rounded-xl shadow-xl p-3 z-40">
+                        <div className="flex justify-between items-center mb-2 border-b border-gray-100 pb-2">
+                          <label className="flex items-center gap-1.5 text-sm text-gray-500 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={tempDistricts.length === SHANGHAI_DISTRICTS.length}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setTempDistricts([...SHANGHAI_DISTRICTS]);
+                                } else {
+                                  setTempDistricts([]);
+                                }
+                              }}
+                              className="rounded text-orange-500 focus:ring-orange-400 border-gray-300 w-3 h-3"
+                            />
+                            <span>全选</span>
+                          </label>
+                        </div>
+                        <div className="grid grid-cols-3 gap-1 max-h-40 overflow-y-auto">
+                          {SHANGHAI_DISTRICTS.map((item) => {
+                            const isChecked = tempDistricts.includes(item);
+                            return (
+                              <button
+                                key={item}
+                                onClick={() => toggleTempDistrict(item)}
+                                className={`py-1 text-center rounded text-xs font-sans border transition-all truncate px-1 ${
+                                  isChecked
+                                    ? 'bg-orange-500 text-white border-orange-500 font-semibold'
+                                    : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'
+                                }`}
+                              >
+                                {item.replace('区', '').replace('新区', '')}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <div className="flex justify-end gap-2 border-t border-gray-100 pt-2">
+                          <button
+                            onClick={handleDistrictReset}
+                            className="px-2 py-1 text-[10px] font-semibold text-gray-500 border border-gray-200 hover:bg-gray-50 rounded"
+                          >
+                            重置
+                          </button>
+                          <button
+                            onClick={handleDistrictConfirm}
+                            className="px-3 py-1 text-[10px] font-semibold bg-orange-500 text-white rounded hover:bg-orange-600 shadow-sm"
+                          >
+                            确定
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="relative">
+                    <button
+                      onClick={() => {
+                        setIsGradeDropdownOpen(!isGradeDropdownOpen);
+                        setIsDistrictDropdownOpen(false);
+                        setIsSubjectDropdownOpen(false);
+                        setTempGrades(selectedGrades);
+                      }}
+                      className={`px-3 py-2 border rounded text-sm flex items-center justify-between gap-1 hover:bg-gray-50 font-medium transition-all ${
+                        selectedGrades.length > 0
+                        ? 'border-orange-500 bg-orange-50/30 text-orange-700'
+                        : 'bg-gray-50 border-gray-200 text-gray-700'
+                      }`}
+                    >
+                      <span>{selectedGrades.length === 0 ? '年级' : `年级(${selectedGrades.length})`}</span>
+                      <ChevronDown className="w-4 h-4 text-gray-400" />
+                    </button>
+                    {isGradeDropdownOpen && (
+                      <div className="absolute top-8 left-0 w-48 bg-white border border-gray-200 rounded-xl shadow-xl p-3 z-40">
+                        <div className="flex justify-between items-center mb-2 pb-2 border-b border-gray-100">
+                          <label className="flex items-center gap-1.5 text-sm text-gray-500 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={tempGrades.length === GRADES.length}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setTempGrades([...GRADES]);
+                                } else {
+                                  setTempGrades([]);
+                                }
+                              }}
+                              className="rounded text-orange-500 focus:ring-orange-400 border-gray-300 w-3 h-3"
+                            />
+                            <span>全选</span>
+                          </label>
+                        </div>
+                        <div className="grid grid-cols-2 gap-1 mb-2">
+                          {GRADES.map((item) => {
+                            const isChecked = tempGrades.includes(item);
+                            return (
+                              <button
+                                key={item}
+                                onClick={() => toggleTempGrade(item)}
+                                className={`py-1 rounded text-[10px] text-center border transition-all ${
+                                  isChecked
+                                    ? 'bg-orange-500 text-white border-orange-500 font-semibold'
+                                    : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'
+                                }`}
+                              >
+                                {item}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <div className="flex justify-end gap-2 border-t border-gray-100 pt-2">
+                          <button
+                            onClick={handleGradeReset}
+                            className="px-2 py-1 text-[10px] text-gray-500 border border-gray-200 hover:bg-gray-50 rounded"
+                          >
+                            重置
+                          </button>
+                          <button
+                            onClick={handleGradeConfirm}
+                            className="px-3 py-1 text-[10px] bg-orange-500 text-white rounded hover:bg-orange-600 shadow-sm font-semibold"
+                          >
+                            确定
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="relative">
+                    <button
+                      onClick={() => {
+                        setIsSubjectDropdownOpen(!isSubjectDropdownOpen);
+                        setIsDistrictDropdownOpen(false);
+                        setIsGradeDropdownOpen(false);
+                        setTempSubjects(selectedSubjects);
+                      }}
+                      className={`px-3 py-2 border rounded text-sm flex items-center justify-between gap-1 hover:bg-gray-50 font-medium transition-all ${
+                        selectedSubjects.length > 0
+                        ? 'border-orange-500 bg-orange-50/30 text-orange-700'
+                        : 'bg-gray-50 border-gray-200 text-gray-700'
+                      }`}
+                    >
+                      <span>{selectedSubjects.length === 0 ? '科目' : `科目(${selectedSubjects.length})`}</span>
+                      <ChevronDown className="w-4 h-4 text-gray-400" />
+                    </button>
+                    {isSubjectDropdownOpen && (
+                      <div className="absolute top-8 left-0 w-56 bg-white border border-gray-200 rounded-xl shadow-xl p-3 z-40">
+                        <div className="flex justify-between items-center mb-2 pb-2 border-b border-gray-100">
+                          <label className="flex items-center gap-1.5 text-sm text-gray-500 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={tempSubjects.length === SUBJECTS.length}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setTempSubjects([...SUBJECTS]);
+                                } else {
+                                  setTempSubjects([]);
+                                }
+                              }}
+                              className="rounded text-orange-500 focus:ring-orange-400 border-gray-300 w-3 h-3"
+                            />
+                            <span>全选</span>
+                          </label>
+                        </div>
+                        <div className="grid grid-cols-3 gap-1 max-h-40 overflow-y-auto">
+                          {SUBJECTS.map((item) => {
+                            const isChecked = tempSubjects.includes(item);
+                            return (
+                              <button
+                                key={item}
+                                onClick={() => toggleTempSubject(item)}
+                                className={`py-1 text-center rounded text-[10px] border transition-all ${
+                                  isChecked
+                                    ? 'bg-orange-500 text-white border-orange-500 font-semibold'
+                                    : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'
+                                }`}
+                              >
+                                {item}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <div className="flex justify-end gap-2 border-t border-gray-100 pt-2">
+                          <button
+                            onClick={handleSubjectReset}
+                            className="px-2 py-1 text-[10px] text-gray-500 border border-gray-200 hover:bg-gray-50 rounded"
+                          >
+                            重置
+                          </button>
+                          <button
+                            onClick={handleSubjectConfirm}
+                            className="px-3 py-1 text-[10px] bg-orange-500 text-white rounded hover:bg-orange-600 shadow-sm font-semibold"
+                          >
+                            确定
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex-1 relative">
+                  <input
+                    type="text"
+                    placeholder="搜索地区、年级、科目关键词..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full pl-9 pr-4 py-2 bg-gray-100 border-none rounded text-sm focus:ring-1.5 focus:ring-orange-500 focus:bg-white text-gray-800 placeholder-gray-400 focus:outline-none transition-all"
+                  />
+                  <Search className="w-4 h-4 absolute left-3 top-2 text-gray-400" />
+                  {searchQuery && (
+                    <button
+                      onClick={() => setSearchQuery('')}
+                      className="absolute right-2 top-1.5 text-gray-400 hover:text-gray-600 p-0.5 rounded-full"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                <button
+                  onClick={() => {
+                    const input = document.querySelector('input[placeholder="搜索地区、年级、科目关键词..."]') as HTMLInputElement;
+                    if (input) input.focus();
+                  }}
+                  className="w-8 h-8 bg-white rounded-full shadow flex items-center justify-center ring-2 ring-white hover:bg-gray-50 transition-colors shrink-0 border border-gray-200"
+                  title="搜索"
+                >
+                  <Search className="w-4 h-4 text-gray-600" />
+                </button>
+              </div>
+
+              {currentLandmark && (
+                <div className="flex items-center justify-between text-xs text-gray-500">
+                  <div className="flex items-center gap-2">
+                    <span className="text-cyan-600 font-semibold">当前位置:</span>
+                    <span className="font-medium text-gray-700">{currentLandmark.name}</span>
+                    <span className="text-gray-400">|</span>
+                    <span>搜索范围: {advancedFilters.maxDistance}公里</span>
+                  </div>
+                  <span>共 {filteredOrders.length} 个订单</span>
+                </div>
+              )}
+            </nav>
+
+            <ShanghaiRadarMap
+              currentLandmark={currentLandmark}
+              filteredOrders={filteredOrders}
+              selectedOrderId={selectedOrderId}
+              setSelectedOrderId={setSelectedOrderId}
+              maxDistance={advancedFilters.maxDistance}
+              onModifyLandmark={() => setIsLandmarkModalOpen(true)}
+              activeTab={activeTab}
+              onUpdateLandmark={setCurrentLandmark}
+            />
+          </div>
         ) : (
           /* VIEW 3: FAVORITES ("我的收藏") */
           <div className="flex-1 flex flex-col md:flex-row overflow-hidden bg-gray-50">
