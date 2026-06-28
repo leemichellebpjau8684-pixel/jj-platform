@@ -3,6 +3,11 @@ import { getDistance } from '../utils';
 
 const ENV = (import.meta as any).env || {};
 
+console.log('AMAP ENV:', JSON.stringify({
+  VITE_AMAP_JS_KEY: ENV.VITE_AMAP_JS_KEY,
+  VITE_AMAP_JS_SECURITY_CODE: ENV.VITE_AMAP_JS_SECURITY_CODE,
+}));
+
 export const AMAP_CONFIG = {
   key: (ENV.VITE_AMAP_JS_KEY as string) || '',
   securityJsCode: (ENV.VITE_AMAP_JS_SECURITY_CODE as string) || '',
@@ -67,7 +72,7 @@ export function loadAMapScript(): Promise<void> {
     script.type = 'text/javascript';
     script.src =
       `https://webapi.amap.com/maps?v=2.0&key=${AMAP_CONFIG.key}` +
-      `&plugin=AMap.Geocoder,AMap.DistrictSearch,AMap.PlaceSearch`;
+      `&plugin=AMap.Geocoder,AMap.DistrictSearch,AMap.PlaceSearch,AMap.Geolocation`;
     script.async = true;
     script.onerror = () => reject(new Error('高德地图脚本加载失败，请检查网络连接'));
     script.onload = () => {
@@ -81,6 +86,81 @@ export function loadAMapScript(): Promise<void> {
   });
 
   return withTimeout(amapLoadPromise, 5000, '高德地图脚本加载超时');
+}
+
+export interface GeolocationResult {
+  coordinate: Coordinate;
+  address: string;
+  name: string;
+}
+
+export async function getCurrentPosition(): Promise<GeolocationResult> {
+  await loadAMapScript();
+  await ensurePlugins(['AMap.Geolocation']);
+  const AMap = getAMap();
+  if (!AMap) {
+    return new Promise((resolve, reject) => {
+      if (!navigator.geolocation) {
+        reject(new Error('您的浏览器不支持定位功能'));
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const { latitude: lat, longitude: lng } = position.coords;
+          resolve({
+            coordinate: { lat, lng },
+            address: `经度:${lng.toFixed(4)}, 纬度:${lat.toFixed(4)}`,
+            name: '当前位置'
+          });
+        },
+        (err) => {
+          let message = '无法获取您的位置信息';
+          if (err.code === 1) message = '定位权限被拒绝';
+          else if (err.code === 2) message = '无法获取位置信息';
+          else if (err.code === 3) message = '定位超时';
+          reject(new Error(message));
+        },
+        {
+          enableHighAccuracy: false,
+          timeout: 10000,
+          maximumAge: 30000
+        }
+      );
+    });
+  }
+
+  return await withTimeout<GeolocationResult>(
+    new Promise((resolve, reject) => {
+      const geolocation = new AMap.Geolocation({
+        enableHighAccuracy: false,
+        timeout: 8000,
+        maximumAge: 30000,
+        convert: true,
+        noIpLocate: true,
+      });
+
+      geolocation.getCurrentPosition((status: string, result: any) => {
+        if (status === 'complete' && result.position) {
+          const lat = result.position.getLat();
+          const lng = result.position.getLng();
+          const address = result.formattedAddress || `经度:${lng.toFixed(4)}, 纬度:${lat.toFixed(4)}`;
+          const name = result.addressComponent && (result.addressComponent.neighborhood || result.addressComponent.building) 
+            ? (result.addressComponent.neighborhood || result.addressComponent.building)
+            : address.replace('上海市', '') || '当前位置';
+          
+          resolve({
+            coordinate: { lat, lng },
+            address,
+            name
+          });
+        } else {
+          reject(new Error(result.message || '定位失败'));
+        }
+      });
+    }),
+    12000,
+    '高德地图定位超时'
+  );
 }
 
 function getAMap(): any | null {
@@ -231,6 +311,66 @@ export async function forwardGeocode(
   });
 }
 
+export async function searchNearbyPOIs(coordinate: Coordinate, keyword: string = ''): Promise<Landmark[]> {
+  if (!AMAP_CONFIG.key) {
+    return [];
+  }
+
+  try {
+    await loadAMapScript();
+    await ensurePlugins(['AMap.PlaceSearch']);
+    const AMap = getAMap();
+    if (!AMap) return [];
+
+    const placeSearch = new AMap.PlaceSearch({ 
+      city: AMAP_CONFIG.city, 
+      citylimit: true,
+      pageSize: 15 
+    });
+
+    const categories = keyword ? [keyword] : ['小区', '住宅楼', '地铁站', '大厦', '广场', '学校'];
+    const uniqueNames = new Set<string>();
+    const results: Landmark[] = [];
+
+    for (const category of categories) {
+      const pois = await new Promise<Landmark[]>((resolve) => {
+        placeSearch.searchNearBy(category, [coordinate.lng, coordinate.lat], 1500, (status: string, result: any) => {
+          console.log('AMap 附近POI搜索:', { category, status, resultCount: result?.poiList?.pois?.length || 0 });
+          
+          if (status === 'complete' && result.poiList && result.poiList.pois && result.poiList.pois.length > 0) {
+            const matches: Landmark[] = result.poiList.pois
+              .filter((poi: any) => poi.location)
+              .map((poi: any, idx: number) => ({
+                id: `nearby_${poi.id || Date.now()}_${idx}`,
+                name: poi.name || '附近地标',
+                address: poi.address || poi.name || '上海市',
+                coordinate: { lat: poi.location.getLat(), lng: poi.location.getLng() },
+                type: 'custom' as const,
+              }));
+            resolve(matches);
+          } else {
+            resolve([]);
+          }
+        });
+      });
+
+      for (const poi of pois) {
+        if (!uniqueNames.has(poi.name)) {
+          uniqueNames.add(poi.name);
+          results.push(poi);
+        }
+      }
+
+      if (results.length >= 10) break;
+    }
+
+    return results.slice(0, 10);
+  } catch (e) {
+    console.error('searchNearbyPOIs error:', e);
+    return [];
+  }
+}
+
 export async function searchPOIs(keyword: string): Promise<Landmark[]> {
   const trimmed = keyword.trim();
   if (!trimmed) return [];
@@ -241,18 +381,42 @@ export async function searchPOIs(keyword: string): Promise<Landmark[]> {
 
   try {
     await loadAMapScript();
-    await ensurePlugins(['AMap.PlaceSearch', 'AMap.Geocoder']);
+    await ensurePlugins(['AMap.PlaceSearch']);
     const AMap = getAMap();
     if (!AMap) return [];
 
-    return await withTimeout<Landmark[]>(
-      new Promise((resolve) => {
-        const placeSearch = new AMap.PlaceSearch({ city: AMAP_CONFIG.city, citylimit: true, pageSize: 10 });
+    const placeSearch = new AMap.PlaceSearch({ 
+      city: AMAP_CONFIG.city, 
+      citylimit: true,
+      pageSize: 20 
+    });
 
-        placeSearch.search(trimmed, (status: string, result: any) => {
+    const searchTerms = [
+      trimmed,
+      `${trimmed}路`,
+      `${trimmed}小区`,
+      `${trimmed}地铁站`,
+      `${trimmed}大厦`,
+      `${trimmed}广场`,
+      `上海市${trimmed}`
+    ];
+
+    const uniqueNames = new Set<string>();
+    const results: Landmark[] = [];
+
+    for (const term of searchTerms) {
+      const pois = await new Promise<Landmark[]>((resolve) => {
+        placeSearch.search(term, (status: string, result: any) => {
+          console.log('AMap POI搜索:', { keyword: term, status, resultCount: result?.poiList?.pois?.length || 0 });
+          
           if (status === 'complete' && result.poiList && result.poiList.pois && result.poiList.pois.length > 0) {
             const matches: Landmark[] = result.poiList.pois
               .filter((poi: any) => poi.location)
+              .filter((poi: any) => {
+                const lat = poi.location.getLat();
+                const lng = poi.location.getLng();
+                return isInShanghai({ lat, lng });
+              })
               .map((poi: any, idx: number) => ({
                 id: `poi_${poi.id || Date.now()}_${idx}`,
                 name: poi.name || trimmed,
@@ -261,31 +425,25 @@ export async function searchPOIs(keyword: string): Promise<Landmark[]> {
                 type: 'custom' as const,
               }));
             resolve(matches);
-            return;
+          } else {
+            resolve([]);
           }
-
-          const geocoder = new AMap.Geocoder({ city: AMAP_CONFIG.city });
-          const fullQuery = trimmed.startsWith('上海') ? trimmed : `上海市${trimmed}`;
-          geocoder.getLocation(fullQuery, (geoStatus: string, geoResult: any) => {
-            if (geoStatus === 'complete' && geoResult.geocodes && geoResult.geocodes.length > 0) {
-              const list: Landmark[] = geoResult.geocodes.map((g: any, idx: number) => ({
-                id: `geo_${Date.now()}_${idx}`,
-                name: (g.formattedAddress || trimmed).replace('上海市', '') || trimmed,
-                address: g.formattedAddress || fullQuery,
-                coordinate: { lat: g.location.getLat(), lng: g.location.getLng() },
-                type: 'custom' as const,
-              }));
-              resolve(list);
-            } else {
-              resolve([]);
-            }
-          });
         });
-      }),
-      5000,
-      'POI搜索超时'
-    );
-  } catch {
+      });
+
+      for (const poi of pois) {
+        if (!uniqueNames.has(poi.name)) {
+          uniqueNames.add(poi.name);
+          results.push(poi);
+        }
+      }
+
+      if (results.length >= 10) break;
+    }
+
+    return results.slice(0, 10);
+  } catch (e) {
+    console.error('searchPOIs error:', e);
     return [];
   }
 }

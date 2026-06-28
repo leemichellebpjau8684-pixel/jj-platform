@@ -257,13 +257,7 @@ export default function App() {
     const handleOpenOrderDetail = (e: any) => {
       const { orderId } = e.detail;
       setSelectedOrderId(orderId);
-      setActiveTab('list');
-      setTimeout(() => {
-        const orderCard = document.getElementById(`order-card-${orderId}`);
-        if (orderCard) {
-          orderCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }
-      }, 100);
+      setIsMobileDetailModalOpen(true);
     };
     
     window.addEventListener('popstate', handleLocationChange);
@@ -484,41 +478,7 @@ export default function App() {
     prevActiveTabRef.current = activeTab;
   }, [activeTab]);
 
-  // Geocode all order addresses when orders are loaded
-  useEffect(() => {
-    if (orders.length === 0) return;
-    
-    loadAMapScript()
-      .then(() => {
-        const AMap = (window as any).AMap;
-        if (AMap) {
-          AMap.plugin('AMap.Geocoder', () => {
-            const geocoder = new AMap.Geocoder({ city: '上海市' });
-            orders.forEach((order) => {
-              const fullAddress = order.address.startsWith('上海') 
-                ? order.address 
-                : `上海市${order.district}${order.address}`;
-                
-              geocoder.getLocation(fullAddress, (status: string, result: any) => {
-                if (status === 'complete' && result.geocodes && result.geocodes.length > 0) {
-                  const matchedLoc = result.geocodes[0].location;
-                  setOrders((prev) => 
-                    prev.map((o) => 
-                      o.id === order.id 
-                        ? { ...o, coordinate: { lat: matchedLoc.getLat(), lng: matchedLoc.getLng() } }
-                        : o
-                    )
-                  );
-                }
-              });
-            });
-          });
-        }
-      })
-      .catch((err) => {
-        console.error('AMap load during app setup failed:', err);
-      });
-  }, [orders]);
+
 
   // Filter States
   const [tempDistricts, setTempDistricts] = useState<string[]>([]);
@@ -595,9 +555,14 @@ export default function App() {
         return false;
       }
 
-      // 2. Grade multi-select logic
-      if (selectedGrades.length > 0 && !selectedGrades.includes(order.grade)) {
-        return false;
+      // 2. Grade multi-select logic - fuzzy matching for grades
+      if (selectedGrades.length > 0) {
+        const matchesAnyGrade = selectedGrades.some(
+          selected => order.grade.includes(selected)
+        );
+        if (!matchesAnyGrade) {
+          return false;
+        }
       }
 
       // 3. Subject multi-select logic - using contains match for combined subjects
@@ -1990,7 +1955,14 @@ export default function App() {
                           <button 
                             onClick={(e) => {
                               e.stopPropagation();
-                              navigator.clipboard.writeText(order.rawContent || order.studentDetail || order.id);
+                              // 优先使用rawContent，如果存在则在其前面加上家教编号
+                              let copyText = order.idLine || order.id;
+                              if (order.rawContent) {
+                                copyText = `${order.idLine || order.id}\n${order.rawContent}`;
+                              } else if (order.studentDetail) {
+                                copyText = `${order.idLine || order.id}\n${order.studentDetail}`;
+                              }
+                              navigator.clipboard.writeText(copyText);
                             }}
                             className="flex items-center gap-1 px-2 py-1 bg-gray-100 rounded text-xs text-gray-500 hover:bg-gray-200 transition-colors"
                           >
@@ -2131,7 +2103,7 @@ export default function App() {
                         </h2>
                       </div>
                       <span className="px-2 py-0.5 bg-emerald-50 border border-emerald-200 text-emerald-700 text-[10px] font-bold rounded-full animate-pulse shrink-0">
-                        正在招生 ⚡
+                        招优秀老师
                       </span>
                     </div>
 
@@ -3290,7 +3262,7 @@ export default function App() {
             </button>
             <h2 className="text-sm font-bold text-gray-900">订单详情</h2>
             <span className="px-2 py-0.5 bg-emerald-50 border border-emerald-200 text-emerald-700 text-[10px] font-bold rounded-full animate-pulse">
-              正在招生 ⚡
+              招优秀老师
             </span>
           </div>
 

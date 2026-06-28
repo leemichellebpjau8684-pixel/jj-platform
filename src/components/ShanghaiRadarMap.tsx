@@ -35,10 +35,13 @@ export default function ShanghaiRadarMap({
   const geocodedCacheRef = useRef<Record<string, { lat: number; lng: number }>>({});
 
   const markersRef = useRef<any[]>([]);
+  const orderMarkersMapRef = useRef<globalThis.Map<string, any>>(new globalThis.Map());
   const landmarkMarkerRef = useRef<any>(null);
   const radiusCircleRef = useRef<any>(null);
   const districtPolygonsRef = useRef<any[]>([]);
   const infoWindowRef = useRef<any>(null);
+  const updateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const lastUpdateRef = useRef<{ landmarkId: string | null; orderIds: string[] }>({ landmarkId: null, orderIds: [] });
 
   const [selectedMapOrder, setSelectedMapOrder] = useState<Order | null>(null);
 
@@ -49,24 +52,55 @@ export default function ShanghaiRadarMap({
 
     if (pendingOrders.length === 0) return;
 
-    pendingOrders.forEach((order) => {
-      forwardGeocode(order.address, { 
-        district: order.district, 
-        anchor: order.coordinate,
-        maxDeviationKm: 10
-      }).then((result) => {
-        const coords = result.coordinate;
-        geocodedCacheRef.current[order.id] = coords;
-        setGeocodedCache({ ...geocodedCacheRef.current });
-        
-        if (mapRef.current) {
+    let cancelled = false;
+    let timeoutId: NodeJS.Timeout | null = null;
+
+    const processOrders = async () => {
+      // 延迟5秒开始，让用户定位功能优先
+      timeoutId = setTimeout(async () => {
+        if (cancelled) return;
+
+        for (let i = 0; i < pendingOrders.length; i++) {
+          if (cancelled) return;
+
+          const order = pendingOrders[i];
+          // 跳过已经有缓存的订单
+          if (geocodedCacheRef.current[order.id]) continue;
+
+          try {
+            const result = await forwardGeocode(order.address, {
+              district: order.district,
+              anchor: order.coordinate,
+              maxDeviationKm: 10
+            });
+            if (cancelled) return;
+
+            const coords = result.coordinate;
+            geocodedCacheRef.current[order.id] = coords;
+          } catch (err) {
+            // 静默失败，不打印大量警告
+          }
+          // 间隔500ms，避免请求过快
+          if (i < pendingOrders.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 500));
+          }
+        }
+
+        // 地理编码全部完成后，批量更新标记
+        if (!cancelled) {
+          setGeocodedCache({ ...geocodedCacheRef.current });
           updateMarkersAndCoordinates();
         }
-      }).catch((err) => {
-        console.warn(`Failed to geocode order ${order.id}:`, err);
-      });
-    });
-  }, [isLoaded, filteredOrders]);
+      }, 5000);
+    };
+
+    processOrders();
+
+    return () => {
+      cancelled = true;
+      if (timeoutId) clearTimeout(timeoutId);
+    };
+  }, [isLoaded, filteredOrders.length]);
 
   useEffect(() => {
     loadAMapScript()
@@ -102,9 +136,7 @@ export default function ShanghaiRadarMap({
       console.debug('Mobile detection:', { isMobile, userAgent: navigator.userAgent });
 
       const mapInstance = new AMap.Map(container, {
-        center: currentLandmark 
-          ? [currentLandmark.coordinate.lng, currentLandmark.coordinate.lat] 
-          : [121.4737, 31.2304],
+        center: [121.4737, 31.2304],
         zoom: 12,
         viewMode: isMobile ? '2D' : '3D',
         pitch: isMobile ? 0 : 15,
@@ -141,7 +173,7 @@ export default function ShanghaiRadarMap({
         mapRef.current = null;
       }
     };
-  }, [isLoaded, currentLandmark]);
+  }, [isLoaded]);
 
   useEffect(() => {
     const handleResize = () => {
@@ -201,148 +233,244 @@ export default function ShanghaiRadarMap({
     const map = mapRef.current;
     if (!map) return;
 
-    const AMap = (window as any).AMap;
-
-    markersRef.current.forEach(m => m.setMap(null));
-    markersRef.current = [];
-
-    if (landmarkMarkerRef.current) {
-      landmarkMarkerRef.current.setMap(null);
-      landmarkMarkerRef.current = null;
+    // 清除之前的更新定时器
+    if (updateTimeoutRef.current) {
+      clearTimeout(updateTimeoutRef.current);
     }
 
-    if (currentLandmark) {
-      const centerPos = [currentLandmark.coordinate.lng, currentLandmark.coordinate.lat];
-      
-      const landmarkContent = document.createElement('div');
-      landmarkContent.className = 'relative flex items-center justify-center';
-      landmarkContent.innerHTML = `
-        <div class="absolute w-12 h-12 bg-cyan-400/20 rounded-full animate-ping" style="animation-duration: 3s;"></div>
-        <div class="absolute w-6 h-6 bg-cyan-500/40 rounded-full"></div>
-        <div class="w-4 h-4 bg-cyan-400 rounded-full border-2 border-white flex items-center justify-center shadow-md shadow-cyan-500/50">
-          <div class="w-1.5 h-1.5 bg-white rounded-full"></div>
-        </div>
-        <div class="absolute -top-7 bg-cyan-600 border border-cyan-400 text-white font-bold text-[9px] px-1.5 py-0.5 rounded shadow whitespace-nowrap leading-none select-none">
-          中心: ${currentLandmark.name.split(' ')[0]}
-        </div>
-      `;
+    // 防抖：延迟执行，等待其他可能的更新
+    updateTimeoutRef.current = setTimeout(() => {
+      performUpdateMarkersAndCoordinates(map);
+    }, 50);
+  };
 
-      landmarkMarkerRef.current = new AMap.Marker({
-        position: centerPos,
-        content: landmarkContent,
-        offset: new AMap.Pixel(-10, -10),
-        zIndex: 150,
-      });
-      landmarkMarkerRef.current.setMap(map);
+  const performUpdateMarkersAndCoordinates = (map: any) => {
+    const AMap = (window as any).AMap;
 
+    // 检查是否需要更新地标标记
+    const shouldUpdateLandmark = currentLandmark?.id !== lastUpdateRef.current.landmarkId;
+
+    // 检查是否需要更新订单标记
+    const currentOrderIds = filteredOrders.map(o => o.id);
+    const ordersChanged = JSON.stringify(currentOrderIds) !== JSON.stringify(lastUpdateRef.current.orderIds);
+
+    // 如果什么都没变，跳过更新
+    if (!shouldUpdateLandmark && !ordersChanged) {
+      return;
+    }
+
+    // 更新地标标记（如果需要）
+    if (shouldUpdateLandmark) {
+      // 移除旧的地标标记
+      if (landmarkMarkerRef.current) {
+        landmarkMarkerRef.current.setMap(null);
+        landmarkMarkerRef.current = null;
+      }
       if (radiusCircleRef.current) {
         radiusCircleRef.current.setMap(null);
         radiusCircleRef.current = null;
       }
 
-      radiusCircleRef.current = new AMap.Circle({
-        center: centerPos,
-        radius: maxDistance * 1000,
-        strokeColor: '#00e5ff',
-        strokeOpacity: 0.45,
-        strokeWeight: 1.5,
-        fillColor: '#00e5ff',
-        fillOpacity: 0.05,
-        strokeStyle: 'dashed',
-        strokeDasharray: [6, 6],
-        pointerEvents: 'none',
-      });
-      radiusCircleRef.current.setMap(map);
-    }
+      // 添加新的地标标记
+      if (currentLandmark) {
+        const centerPos = [currentLandmark.coordinate.lng, currentLandmark.coordinate.lat];
 
-    filteredOrders.forEach((order) => {
-      const coords = geocodedCacheRef.current[order.id] || order.coordinate;
-      const isSelected = selectedOrderId === order.id;
-
-      const orderContent = document.createElement('div');
-      orderContent.className = 'relative flex flex-col items-center justify-center';
-
-      const gradeText = order.grade.length > 2 ? order.grade.substring(0, 2) : order.grade;
-      const subjectText = order.subject.length > 3 ? order.subject.substring(0, 3) : order.subject;
-
-      if (order.isHighPrice) {
-        orderContent.innerHTML = `
-          <div class="relative flex flex-col items-center cursor-pointer transition-all hover:scale-115">
-            ${isSelected ? '<div class="absolute w-12 h-12 bg-red-500/20 rounded-full animate-ping" style="animation-duration: 1.5s;"></div>' : ''}
-            <div class="w-7 h-7 bg-gradient-to-br from-red-500 to-orange-500 rounded-full border-2 border-white flex items-center justify-center shadow-lg shadow-red-500/30">
-              <span class="text-[10px]">🔥</span>
-            </div>
-            <div class="absolute -bottom-5 left-1/2 transform -translate-x-1/2 bg-green-600/95 text-white text-[9px] font-bold px-1.5 py-0.5 rounded whitespace-nowrap shadow-md">
-              ${gradeText}${subjectText}
-            </div>
-            ${isSelected ? '<div class="absolute -bottom-1 -right-1 bg-orange-500 w-2.5 h-2.5 rounded-full border-2 border-white shadow"></div>' : ''}
+        const landmarkContent = document.createElement('div');
+        landmarkContent.className = 'relative flex items-center justify-center';
+        landmarkContent.innerHTML = `
+          <div class="absolute w-12 h-12 bg-cyan-400/20 rounded-full animate-ping" style="animation-duration: 3s;"></div>
+          <div class="absolute w-6 h-6 bg-cyan-500/40 rounded-full"></div>
+          <div class="w-4 h-4 bg-cyan-400 rounded-full border-2 border-white flex items-center justify-center shadow-md shadow-cyan-500/50">
+            <div class="w-1.5 h-1.5 bg-white rounded-full"></div>
+          </div>
+          <div class="absolute -top-7 bg-cyan-600 border border-cyan-400 text-white font-bold text-[9px] px-1.5 py-0.5 rounded shadow whitespace-nowrap leading-none select-none">
+            中心: ${currentLandmark.name.split(' ')[0]}
           </div>
         `;
-      } else {
-        orderContent.innerHTML = `
-          <div class="relative flex flex-col items-center cursor-pointer transition-all hover:scale-115">
-            ${isSelected ? '<div class="absolute w-10 h-10 bg-green-500/20 rounded-full animate-ping" style="animation-duration: 1.8s;"></div>' : ''}
-            <div class="w-5 h-5 bg-green-500 rounded-full border-2 border-white flex items-center justify-center shadow-md shadow-green-500/30">
-              <div class="w-2 h-2 bg-white rounded-full"></div>
-            </div>
-            <div class="absolute -bottom-5 left-1/2 transform -translate-x-1/2 bg-green-700/95 text-white text-[9px] font-bold px-1.5 py-0.5 rounded whitespace-nowrap shadow-md">
-              ${gradeText}${subjectText}
-            </div>
-            ${isSelected ? '<div class="absolute -bottom-0.5 -right-0.5 bg-green-600 w-2 h-2 rounded-full border-2 border-white shadow"></div>' : ''}
-          </div>
-        `;
+
+        landmarkMarkerRef.current = new AMap.Marker({
+          position: centerPos,
+          content: landmarkContent,
+          offset: new AMap.Pixel(-10, -10),
+          zIndex: 150,
+        });
+        landmarkMarkerRef.current.setMap(map);
+
+        radiusCircleRef.current = new AMap.Circle({
+          center: centerPos,
+          radius: maxDistance * 1000,
+          strokeColor: '#00e5ff',
+          strokeOpacity: 0.45,
+          strokeWeight: 1.5,
+          fillColor: '#00e5ff',
+          fillOpacity: 0.05,
+          strokeStyle: 'dashed',
+          strokeDasharray: [6, 6],
+          pointerEvents: 'none',
+        });
+        radiusCircleRef.current.setMap(map);
+
+        // 平滑移动地图中心
+        map.panTo(centerPos);
       }
 
-      const markerInstance = new AMap.Marker({
-        position: [coords.lng, coords.lat],
-        content: orderContent,
-        offset: new AMap.Pixel(-14, -14),
-        zIndex: isSelected ? 120 : 100,
-        extData: order,
-      });
+      lastUpdateRef.current.landmarkId = currentLandmark?.id || null;
+    }
 
-      markerInstance.on('mouseover', (e: any) => {
-        const infoWindow = infoWindowRef.current;
-        if (!infoWindow) return;
+    // 更新订单标记（如果需要）
+    if (ordersChanged) {
+      // 找出需要添加和移除的标记
+      const currentIds = new globalThis.Set(currentOrderIds);
+      const existingIds = new globalThis.Set(orderMarkersMapRef.current.keys());
 
-        infoWindow.setContent(`
-          <div class="bg-neutral-950/95 border border-neutral-700/80 p-3 rounded-xl shadow-2xl text-white font-sans text-xs min-w-[150px] select-none backdrop-blur">
-            <div class="flex items-center justify-between gap-2.5 border-b border-neutral-800 pb-2 mb-2">
-              <span class="bg-orange-500 text-white font-black text-[10px] px-2 py-0.5 rounded leading-none shrink-0">${order.subject}</span>
-              <span class="font-extrabold text-[11px] font-mono ${order.isHighPrice ? 'text-red-400' : 'text-emerald-400'}">
-                ${order.isNegotiable ? '面议' : `${order.price}/h`}
-              </span>
-            </div>
-            <div class="text-[10px] text-neutral-400 flex items-center justify-between gap-1 mb-1">
-              <span>年级: ${order.grade}</span>
-              <span class="text-neutral-500">${order.district}</span>
-            </div>
-            <div class="text-[9px] text-neutral-510 leading-snug truncate border-t border-neutral-900 pt-1">
-              ${order.address}
-            </div>
-          </div>
-        `);
-        infoWindow.open(map, markerInstance.getPosition());
-      });
-
-      markerInstance.on('mouseout', () => {
-        const infoWindow = infoWindowRef.current;
-        if (infoWindow) {
-          infoWindow.close();
+      // 移除不存在的标记
+      existingIds.forEach(id => {
+        if (!currentIds.has(id)) {
+          const marker = orderMarkersMapRef.current.get(id);
+          if (marker) {
+            marker.setMap(null);
+            orderMarkersMapRef.current.delete(id);
+          }
         }
       });
 
-      markerInstance.on('click', () => {
-        setSelectedOrderId(order.id);
-        setSelectedMapOrder(order);
+      // 添加或更新标记
+      filteredOrders.forEach((order) => {
+        const coords = geocodedCacheRef.current[order.id] || order.coordinate;
+        const isSelected = selectedOrderId === order.id;
+        const existingMarker = orderMarkersMapRef.current.get(order.id);
+
+        // 如果标记存在且坐标相同，只更新选中状态
+        if (existingMarker) {
+          existingMarker.setzIndex(isSelected ? 120 : 100);
+          // 更新内容以反映选中状态
+          const content = existingMarker.getContent();
+          if (content) {
+            updateMarkerContent(content, order, isSelected);
+          }
+          return;
+        }
+
+        // 创建新标记
+        const orderContent = document.createElement('div');
+        orderContent.className = 'relative flex flex-col items-center justify-center';
+
+        const gradeText = order.grade.length > 2 ? order.grade.substring(0, 2) : order.grade;
+        const subjectText = order.subject.length > 3 ? order.subject.substring(0, 3) : order.subject;
+
+        if (order.isHighPrice) {
+          orderContent.innerHTML = `
+            <div class="relative flex flex-col items-center cursor-pointer transition-all hover:scale-115">
+              ${isSelected ? '<div class="absolute w-12 h-12 bg-red-500/20 rounded-full animate-ping" style="animation-duration: 1.5s;"></div>' : ''}
+              <div class="w-7 h-7 bg-gradient-to-br from-red-500 to-orange-500 rounded-full border-2 border-white flex items-center justify-center shadow-lg shadow-red-500/30">
+                <span class="text-[10px]">🔥</span>
+              </div>
+              <div class="absolute -bottom-5 left-1/2 transform -translate-x-1/2 bg-green-600/95 text-white text-[9px] font-bold px-1.5 py-0.5 rounded whitespace-nowrap shadow-md">
+                ${gradeText}${subjectText}
+              </div>
+              ${isSelected ? '<div class="absolute -bottom-1 -right-1 bg-orange-500 w-2.5 h-2.5 rounded-full border-2 border-white shadow"></div>' : ''}
+            </div>
+          `;
+        } else {
+          orderContent.innerHTML = `
+            <div class="relative flex flex-col items-center cursor-pointer transition-all hover:scale-115">
+              ${isSelected ? '<div class="absolute w-10 h-10 bg-green-500/20 rounded-full animate-ping" style="animation-duration: 1.8s;"></div>' : ''}
+              <div class="w-5 h-5 bg-green-500 rounded-full border-2 border-white flex items-center justify-center shadow-md shadow-green-500/30">
+                <div class="w-2 h-2 bg-white rounded-full"></div>
+              </div>
+              <div class="absolute -bottom-5 left-1/2 transform -translate-x-1/2 bg-green-700/95 text-white text-[9px] font-bold px-1.5 py-0.5 rounded whitespace-nowrap shadow-md">
+                ${gradeText}${subjectText}
+              </div>
+              ${isSelected ? '<div class="absolute -bottom-0.5 -right-0.5 bg-green-600 w-2 h-2 rounded-full border-2 border-white shadow"></div>' : ''}
+            </div>
+          `;
+        }
+
+        const markerInstance = new AMap.Marker({
+          position: [coords.lng, coords.lat],
+          content: orderContent,
+          offset: new AMap.Pixel(-14, -14),
+          zIndex: isSelected ? 120 : 100,
+          extData: order,
+        });
+
+        markerInstance.on('mouseover', () => {
+          const infoWindow = infoWindowRef.current;
+          if (!infoWindow) return;
+
+          infoWindow.setContent(`
+            <div class="bg-neutral-950/95 border border-neutral-700/80 p-3 rounded-xl shadow-2xl text-white font-sans text-xs min-w-[150px] select-none backdrop-blur">
+              <div class="flex items-center justify-between gap-2.5 border-b border-neutral-800 pb-2 mb-2">
+                <span class="bg-orange-500 text-white font-black text-[10px] px-2 py-0.5 rounded leading-none shrink-0">${order.subject}</span>
+                <span class="font-extrabold text-[11px] font-mono ${order.isHighPrice ? 'text-red-400' : 'text-emerald-400'}">
+                  ${order.isNegotiable ? '面议' : `${order.price}/h`}
+                </span>
+              </div>
+              <div class="text-[10px] text-neutral-400 flex items-center justify-between gap-1 mb-1">
+                <span>年级: ${order.grade}</span>
+                <span class="text-neutral-500">${order.district}</span>
+              </div>
+              <div class="text-[9px] text-neutral-510 leading-snug truncate border-t border-neutral-900 pt-1">
+                ${order.address}
+              </div>
+            </div>
+          `);
+          infoWindow.open(map, markerInstance.getPosition());
+        });
+
+        markerInstance.on('mouseout', () => {
+          const infoWindow = infoWindowRef.current;
+          if (infoWindow) {
+            infoWindow.close();
+          }
+        });
+
+        markerInstance.on('click', () => {
+          setSelectedOrderId(order.id);
+          setSelectedMapOrder(order);
+        });
+
+        markerInstance.setMap(map);
+        orderMarkersMapRef.current.set(order.id, markerInstance);
       });
 
-      markerInstance.setMap(map);
-      markersRef.current.push(markerInstance);
-    });
+      lastUpdateRef.current.orderIds = currentOrderIds;
+    }
 
-    if (currentLandmark && markersRef.current.length > 0) {
-      map.panTo([currentLandmark.coordinate.lng, currentLandmark.coordinate.lat]);
+    // 更新 markersRef 用于兼容其他代码
+    markersRef.current = Array.from(orderMarkersMapRef.current.values());
+  };
+
+  const updateMarkerContent = (content: HTMLElement, order: Order, isSelected: boolean) => {
+    const gradeText = order.grade.length > 2 ? order.grade.substring(0, 2) : order.grade;
+    const subjectText = order.subject.length > 3 ? order.subject.substring(0, 3) : order.subject;
+
+    if (order.isHighPrice) {
+      content.innerHTML = `
+        <div class="relative flex flex-col items-center cursor-pointer transition-all hover:scale-115">
+          ${isSelected ? '<div class="absolute w-12 h-12 bg-red-500/20 rounded-full animate-ping" style="animation-duration: 1.5s;"></div>' : ''}
+          <div class="w-7 h-7 bg-gradient-to-br from-red-500 to-orange-500 rounded-full border-2 border-white flex items-center justify-center shadow-lg shadow-red-500/30">
+            <span class="text-[10px]">🔥</span>
+          </div>
+          <div class="absolute -bottom-5 left-1/2 transform -translate-x-1/2 bg-green-600/95 text-white text-[9px] font-bold px-1.5 py-0.5 rounded whitespace-nowrap shadow-md">
+            ${gradeText}${subjectText}
+          </div>
+          ${isSelected ? '<div class="absolute -bottom-1 -right-1 bg-orange-500 w-2.5 h-2.5 rounded-full border-2 border-white shadow"></div>' : ''}
+        </div>
+      `;
+    } else {
+      content.innerHTML = `
+        <div class="relative flex flex-col items-center cursor-pointer transition-all hover:scale-115">
+          ${isSelected ? '<div class="absolute w-10 h-10 bg-green-500/20 rounded-full animate-ping" style="animation-duration: 1.8s;"></div>' : ''}
+          <div class="w-5 h-5 bg-green-500 rounded-full border-2 border-white flex items-center justify-center shadow-md shadow-green-500/30">
+            <div class="w-2 h-2 bg-white rounded-full"></div>
+          </div>
+          <div class="absolute -bottom-5 left-1/2 transform -translate-x-1/2 bg-green-700/95 text-white text-[9px] font-bold px-1.5 py-0.5 rounded whitespace-nowrap shadow-md">
+            ${gradeText}${subjectText}
+          </div>
+          ${isSelected ? '<div class="absolute -bottom-0.5 -right-0.5 bg-green-600 w-2 h-2 rounded-full border-2 border-white shadow"></div>' : ''}
+        </div>
+      `;
     }
   };
 
@@ -350,7 +478,14 @@ export default function ShanghaiRadarMap({
     if (isLoaded) {
       updateMarkersAndCoordinates();
     }
-  }, [isLoaded, currentLandmark, filteredOrders, selectedOrderId, maxDistance]);
+  }, [isLoaded, currentLandmark, selectedOrderId, maxDistance]);
+
+  // 监听订单列表变化，更新标记
+  useEffect(() => {
+    if (isLoaded) {
+      updateMarkersAndCoordinates();
+    }
+  }, [isLoaded, filteredOrders]);
 
   const zoomIn = () => {
     if (mapRef.current) {

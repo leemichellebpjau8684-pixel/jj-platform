@@ -246,9 +246,9 @@ export default function AdminDashboard({
     setParseLoading(true);
 
     // Split raw text into individual blocks by looking for order number patterns first
-    // Primary patterns: 【数字】号信息, 🌙【数字】, 【订单编号】, SH-2026, LL家教, etc.
+    // Primary patterns: 【数字】号信息, 🌙【数字】, 【订单编号】, SH-2026, LL家教, 上海线下, 单+数字, 纯数字编号等
     const rawBlocks = rawText
-      .split(/\n\s*\n|(?=🌙【\d+】)|(?=【\d+】号信息)|(?=【\d+】)|(?=\n家教编号[:：])|(?=\n订单编号[:：])|(?=\n编号[:：])|(?=【订单)|(?=\n\s*【家教编号】)|(?=\s*【家教编号】)|(?=SH-2026)|(?=\[.*?\]LL家教)|(?=LL家教)|(?=\s*[^\w\s\u4e00-\u9fff：:]\d{8,}(?!\/月))|(?=\s+[A-Za-z]{2,}\d{4,}[A-Za-z0-9]*)|(?=[^\w\s\u4e00-\u9fff：:][A-Za-z]{2,}\d{4,}[A-Za-z0-9]*)|(?=\s*[^\w\s\u4e00-\u9fff：:]\d{6,}(?!\/月))|(?=\s*[^\w\s\u4e00-\u9fff：:]上海)|(?=\s*\[太阳\])|(?=\s*\[.*?\]上海)/gi)
+      .split(/\n\s*\n|(?=🌙【\d+】)|(?=【\d+】号信息)|(?=【\d+】)|(?=\n家教编号[:：])|(?=\n订单编号[:：])|(?=\n编号[:：])|(?=【订单)|(?=\n\s*【家教编号】)|(?=\s*【家教编号】)|(?=SH-2026)|(?=\[.*?\]LL家教)|(?=LL家教)|(?=上海线下[A-Za-z0-9]+)|(?=\s+[A-Za-z]{2,}\d{4,}[A-Za-z0-9]*)|(?=[^\w\s\u4e00-\u9fff：:][A-Za-z]{2,}\d{4,}[A-Za-z0-9]*)|(?=【太阳】)|(?=🍅)|(?=🍊)|(?=❤️)|(?=\s*[A-Za-z]{2,}\d{6,})|(?=\s*\d{8,}(?!\d))/gi)
       .map(b => b.trim())
       .filter(b => b.length > 8);
 
@@ -1158,7 +1158,9 @@ export default function AdminDashboard({
       const coord = area ? DISTRICT_CENTERS[area] : { lat: 31.2304, lng: 121.4737 }; // midpoint default
 
       const isHigh = priceRate >= 120;
-      const isOnlineLoc = block.includes('线上') || addressDetail.includes('线上') || block.includes('网课');
+      // 判断线上/线下：检查关键词
+      const isOnlineLoc = /线上|网课|视频教学|远程|腾讯会议|钉钉|zoom|在线辅导|online/i.test(block) ||
+                          /线上|网课|视频教学|远程/i.test(addressDetail);
 
       const itemModel: Order = {
         id: '',
