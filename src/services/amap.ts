@@ -34,6 +34,13 @@ function isInShanghai(c: Coordinate): boolean {
 
 let amapLoadPromise: Promise<void> | null = null;
 
+function withTimeout<T>(promise: Promise<T>, ms: number, errorMsg: string): Promise<T> {
+  const timeout = new Promise<T>((_, reject) =>
+    setTimeout(() => reject(new Error(errorMsg)), ms)
+  );
+  return Promise.race([promise, timeout]);
+}
+
 export function loadAMapScript(): Promise<void> {
   if (amapLoadPromise) return amapLoadPromise;
 
@@ -44,7 +51,7 @@ export function loadAMapScript(): Promise<void> {
     }
 
     if (!AMAP_CONFIG.key) {
-      reject(new Error('高德地图API密钥未配置，请在.env文件中设置VITE_AMAP_JS_KEY'));
+      reject(new Error('AMAP_KEY_NOT_CONFIGURED'));
       return;
     }
 
@@ -73,7 +80,7 @@ export function loadAMapScript(): Promise<void> {
     document.head.appendChild(script);
   });
 
-  return amapLoadPromise;
+  return withTimeout(amapLoadPromise, 5000, '高德地图脚本加载超时');
 }
 
 function getAMap(): any | null {
@@ -100,32 +107,57 @@ export async function reverseGeocode(coordinate: Coordinate): Promise<GeoResolve
   const cached = reverseCache.get(key);
   if (cached) return cached;
 
-  await loadAMapScript();
-  await ensurePlugins(['AMap.Geocoder']);
-  const AMap = getAMap();
-  if (!AMap) throw new Error('AMap unavailable');
+  if (!AMAP_CONFIG.key) {
+    const defaultResult: GeoResolved = {
+      coordinate,
+      address: `经度:${coordinate.lng.toFixed(4)}, 纬度:${coordinate.lat.toFixed(4)}`,
+      name: '当前位置'
+    };
+    reverseCache.set(key, defaultResult);
+    return defaultResult;
+  }
 
-  return new Promise<GeoResolved>((resolve, reject) => {
-    const geocoder = new AMap.Geocoder({ city: AMAP_CONFIG.city });
-    geocoder.getAddress([coordinate.lng, coordinate.lat], (status: string, result: any) => {
-      if (status === 'complete' && result.regeocode) {
-        const re = result.regeocode;
-        const formatted: string = re.formattedAddress || '上海市';
-        const ac = re.addressComponent || {};
-        let name = '';
-        if (ac.neighborhood) name = ac.neighborhood;
-        else if (ac.building) name = ac.building;
-        else if (ac.street && ac.streetNumber) name = `${ac.street}${ac.streetNumber}`;
-        else name = formatted.replace('上海市', '') || '当前定位点';
+  try {
+    await loadAMapScript();
+    await ensurePlugins(['AMap.Geocoder']);
+    const AMap = getAMap();
+    if (!AMap) throw new Error('AMap unavailable');
 
-        const resolved: GeoResolved = { coordinate, address: formatted, name };
-        reverseCache.set(key, resolved);
-        resolve(resolved);
-      } else {
-        reject(new Error('reverse geocode failed'));
-      }
-    });
-  });
+    const result = await withTimeout<GeoResolved>(
+      new Promise((resolve, reject) => {
+        const geocoder = new AMap.Geocoder({ city: AMAP_CONFIG.city });
+        geocoder.getAddress([coordinate.lng, coordinate.lat], (status: string, result: any) => {
+          if (status === 'complete' && result.regeocode) {
+            const re = result.regeocode;
+            const formatted: string = re.formattedAddress || '上海市';
+            const ac = re.addressComponent || {};
+            let name = '';
+            if (ac.neighborhood) name = ac.neighborhood;
+            else if (ac.building) name = ac.building;
+            else if (ac.street && ac.streetNumber) name = `${ac.street}${ac.streetNumber}`;
+            else name = formatted.replace('上海市', '') || '当前定位点';
+
+            const resolved: GeoResolved = { coordinate, address: formatted, name };
+            reverseCache.set(key, resolved);
+            resolve(resolved);
+          } else {
+            reject(new Error('reverse geocode failed'));
+          }
+        });
+      }),
+      5000,
+      '反向地理编码超时'
+    );
+    return result;
+  } catch {
+    const fallback: GeoResolved = {
+      coordinate,
+      address: `经度:${coordinate.lng.toFixed(4)}, 纬度:${coordinate.lat.toFixed(4)}`,
+      name: '当前位置'
+    };
+    reverseCache.set(key, fallback);
+    return fallback;
+  }
 }
 
 export interface ForwardOptions {
@@ -203,47 +235,59 @@ export async function searchPOIs(keyword: string): Promise<Landmark[]> {
   const trimmed = keyword.trim();
   if (!trimmed) return [];
 
-  await loadAMapScript();
-  await ensurePlugins(['AMap.PlaceSearch', 'AMap.Geocoder']);
-  const AMap = getAMap();
-  if (!AMap) throw new Error('AMap unavailable');
+  if (!AMAP_CONFIG.key) {
+    return [];
+  }
 
-  return new Promise<Landmark[]>((resolve, reject) => {
-    const placeSearch = new AMap.PlaceSearch({ city: AMAP_CONFIG.city, citylimit: true, pageSize: 10 });
+  try {
+    await loadAMapScript();
+    await ensurePlugins(['AMap.PlaceSearch', 'AMap.Geocoder']);
+    const AMap = getAMap();
+    if (!AMap) return [];
 
-    placeSearch.search(trimmed, (status: string, result: any) => {
-      if (status === 'complete' && result.poiList && result.poiList.pois && result.poiList.pois.length > 0) {
-        const matches: Landmark[] = result.poiList.pois
-          .filter((poi: any) => poi.location)
-          .map((poi: any, idx: number) => ({
-            id: `poi_${poi.id || Date.now()}_${idx}`,
-            name: poi.name || trimmed,
-            address: poi.address || poi.name || '上海市',
-            coordinate: { lat: poi.location.getLat(), lng: poi.location.getLng() },
-            type: 'custom' as const,
-          }));
-        resolve(matches);
-        return;
-      }
+    return await withTimeout<Landmark[]>(
+      new Promise((resolve) => {
+        const placeSearch = new AMap.PlaceSearch({ city: AMAP_CONFIG.city, citylimit: true, pageSize: 10 });
 
-      const geocoder = new AMap.Geocoder({ city: AMAP_CONFIG.city });
-      const fullQuery = trimmed.startsWith('上海') ? trimmed : `上海市${trimmed}`;
-      geocoder.getLocation(fullQuery, (geoStatus: string, geoResult: any) => {
-        if (geoStatus === 'complete' && geoResult.geocodes && geoResult.geocodes.length > 0) {
-          const list: Landmark[] = geoResult.geocodes.map((g: any, idx: number) => ({
-            id: `geo_${Date.now()}_${idx}`,
-            name: (g.formattedAddress || trimmed).replace('上海市', '') || trimmed,
-            address: g.formattedAddress || fullQuery,
-            coordinate: { lat: g.location.getLat(), lng: g.location.getLng() },
-            type: 'custom' as const,
-          }));
-          resolve(list);
-        } else {
-          resolve([]);
-        }
-      });
-    });
-  });
+        placeSearch.search(trimmed, (status: string, result: any) => {
+          if (status === 'complete' && result.poiList && result.poiList.pois && result.poiList.pois.length > 0) {
+            const matches: Landmark[] = result.poiList.pois
+              .filter((poi: any) => poi.location)
+              .map((poi: any, idx: number) => ({
+                id: `poi_${poi.id || Date.now()}_${idx}`,
+                name: poi.name || trimmed,
+                address: poi.address || poi.name || '上海市',
+                coordinate: { lat: poi.location.getLat(), lng: poi.location.getLng() },
+                type: 'custom' as const,
+              }));
+            resolve(matches);
+            return;
+          }
+
+          const geocoder = new AMap.Geocoder({ city: AMAP_CONFIG.city });
+          const fullQuery = trimmed.startsWith('上海') ? trimmed : `上海市${trimmed}`;
+          geocoder.getLocation(fullQuery, (geoStatus: string, geoResult: any) => {
+            if (geoStatus === 'complete' && geoResult.geocodes && geoResult.geocodes.length > 0) {
+              const list: Landmark[] = geoResult.geocodes.map((g: any, idx: number) => ({
+                id: `geo_${Date.now()}_${idx}`,
+                name: (g.formattedAddress || trimmed).replace('上海市', '') || trimmed,
+                address: g.formattedAddress || fullQuery,
+                coordinate: { lat: g.location.getLat(), lng: g.location.getLng() },
+                type: 'custom' as const,
+              }));
+              resolve(list);
+            } else {
+              resolve([]);
+            }
+          });
+        });
+      }),
+      5000,
+      'POI搜索超时'
+    );
+  } catch {
+    return [];
+  }
 }
 
 const ROUTE_PLUGIN: Record<TravelMode, string> = {

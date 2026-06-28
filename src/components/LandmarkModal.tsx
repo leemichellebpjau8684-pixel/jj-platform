@@ -78,15 +78,24 @@ export default function LandmarkModal({
         name: '当前位置',
         address: `经度:${lng.toFixed(4)}, 纬度:${lat.toFixed(4)}`,
         coordinate,
-        type: 'gps'
+        type: 'gps',
+        distance: 0
       };
       setSelectedTempLandmark(initialLandmark);
+      
+      const defaultNearby: Landmark[] = [
+        initialLandmark,
+        { id: 'near_default_1', name: '地面停车场', address: '附近停车场', coordinate: { lat: lat + 0.001, lng: lng - 0.001 }, type: 'custom', distance: getDistanceFromCoords(coordinate, { lat: lat + 0.001, lng: lng - 0.001 }) },
+        { id: 'near_default_2', name: '便利店/超市', address: '附近便利店', coordinate: { lat: lat + 0.0008, lng: lng + 0.0008 }, type: 'custom', distance: getDistanceFromCoords(coordinate, { lat: lat + 0.0008, lng: lng + 0.0008 }) },
+        { id: 'near_default_3', name: '公交站', address: '附近公交站', coordinate: { lat: lat - 0.0012, lng: lng + 0.0005 }, type: 'custom', distance: getDistanceFromCoords(coordinate, { lat: lat - 0.0012, lng: lng + 0.0005 }) },
+        { id: 'near_default_4', name: '地铁站', address: '附近地铁站', coordinate: { lat: lat + 0.0005, lng: lng - 0.001 }, type: 'custom', distance: getDistanceFromCoords(coordinate, { lat: lat + 0.0005, lng: lng - 0.001 }) },
+        { id: 'near_default_5', name: '餐饮街', address: '附近餐饮街', coordinate: { lat: lat - 0.0008, lng: lng - 0.0005 }, type: 'custom', distance: getDistanceFromCoords(coordinate, { lat: lat - 0.0008, lng: lng - 0.0005 }) }
+      ];
+      setNearbyLandmarks(defaultNearby);
       setGpsLoading(false);
 
       (async () => {
         try {
-          await loadAMapScript();
-          
           const [geoResolved, nearbyPOIs] = await Promise.all([
             reverseGeocode(coordinate).catch(() => null),
             searchPOIs('当前位置').catch(() => [])
@@ -98,31 +107,29 @@ export default function LandmarkModal({
               name: geoResolved.name || '当前位置',
               address: geoResolved.address,
               coordinate,
-              type: 'gps'
+              type: 'gps',
+              distance: 0
             };
             setSelectedTempLandmark(prev => prev?.id === initialLandmark.id ? resolvedLandmark : prev);
+            setNearbyLandmarks(prev => prev.map(l => l.id === initialLandmark.id ? resolvedLandmark : l));
           }
 
           if (nearbyPOIs.length > 0) {
-            const nearbyResults: Landmark[] = nearbyPOIs.slice(0, 6).map((poi, idx) => ({
+            const nearbyResults: Landmark[] = nearbyPOIs.slice(0, 5).map((poi, idx) => ({
               ...poi,
               distance: getDistanceFromCoords(coordinate, poi.coordinate)
             }));
             
-            if (nearbyResults.length < 6) {
-              const defaultNearby: Landmark[] = [
-                { id: 'near_default_1', name: '地面停车场', address: '附近停车场', coordinate: { lat: lat + 0.001, lng: lng - 0.001 }, type: 'custom', distance: getDistanceFromCoords(coordinate, { lat: lat + 0.001, lng: lng - 0.001 }) },
-                { id: 'near_default_2', name: '便利店/超市', address: '附近便利店', coordinate: { lat: lat + 0.0008, lng: lng + 0.0008 }, type: 'custom', distance: getDistanceFromCoords(coordinate, { lat: lat + 0.0008, lng: lng + 0.0008 }) },
-                { id: 'near_default_3', name: '公交站', address: '附近公交站', coordinate: { lat: lat - 0.0012, lng: lng + 0.0005 }, type: 'custom', distance: getDistanceFromCoords(coordinate, { lat: lat - 0.0012, lng: lng + 0.0005 }) }
-              ];
-              const filteredDefaults = defaultNearby.filter(d => !nearbyResults.find(r => r.id === d.id)).slice(0, 6 - nearbyResults.length);
-              nearbyResults.push(...filteredDefaults);
+            const updatedLandmarks = [defaultNearby[0], ...nearbyResults];
+            if (updatedLandmarks.length < 6) {
+              const remainingDefaults = defaultNearby.slice(1).filter(d => !updatedLandmarks.find(r => r.id === d.id)).slice(0, 6 - updatedLandmarks.length);
+              updatedLandmarks.push(...remainingDefaults);
             }
             
-            setNearbyLandmarks(nearbyResults.sort((a, b) => (a.distance || 0) - (b.distance || 0)));
+            setNearbyLandmarks(updatedLandmarks.sort((a, b) => (a.distance || 0) - (b.distance || 0)));
           }
         } catch (e) {
-          // 静默失败，已显示基本坐标
+          // 静默失败，已显示默认地标列表
         }
       })();
     } catch (error) {
@@ -159,17 +166,31 @@ export default function LandmarkModal({
       item.address.toLowerCase().includes(query)
     );
 
+    if (filtered.length > 0) {
+      setSearchResults(filtered);
+    }
+
+    let hasRemoteResults = false;
+    const timeoutPromise = new Promise<void>((resolve) => setTimeout(resolve, 3000));
+    
     try {
-      const poiResults = await searchPOIs(query);
+      const [poiResults] = await Promise.all([
+        searchPOIs(query).catch(() => []),
+        timeoutPromise
+      ]);
+      
       if (poiResults.length > 0) {
-        setSearchResults([...poiResults, ...filtered]);
-      } else {
-        setSearchResults(filtered.length > 0 ? filtered : []);
+        hasRemoteResults = true;
+        const existingNames = new Set(filtered.map(f => f.name));
+        const newResults = poiResults.filter(p => !existingNames.has(p.name));
+        setSearchResults(prev => [...newResults, ...prev]);
       }
     } catch (e) {
       console.error('POI search error:', e);
-      setSearchResults(filtered.length > 0 ? filtered : []);
     } finally {
+      if (!hasRemoteResults && filtered.length === 0) {
+        setSearchResults([]);
+      }
       setSearchLoading(false);
     }
   };
