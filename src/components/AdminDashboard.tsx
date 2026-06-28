@@ -158,6 +158,10 @@ export default function AdminDashboard({
 
   // Input raw WeChat paste zone
   const [rawText, setRawText] = useState('');
+  
+  // Loading states for buttons
+  const [parseLoading, setParseLoading] = useState(false);
+  const [publishLoading, setPublishLoading] = useState(false);
 
   // Editing state for selected item details
   const [selectedDraftId, setSelectedDraftId] = useState<string | null>(null);
@@ -171,12 +175,13 @@ export default function AdminDashboard({
   const [onlineSearchId, setOnlineSearchId] = useState('');
   const [onlineSearchDistrict, setOnlineSearchDistrict] = useState('全部');
   const [onlineSearchSubject, setOnlineSearchSubject] = useState('全部');
-  const [onlineSortBy, setOnlineSortBy] = useState<'default' | 'views'>('default');
+  const [onlineSortBy, setOnlineSortBy] = useState<'default' | 'views' | 'salary'>('default');
 
   // Archive Search Filters
   const [archiveSearchKeyword, setArchiveSearchKeyword] = useState('');
   const [archiveSearchDistrict, setArchiveSearchDistrict] = useState('全部');
   const [archiveSearchSubject, setArchiveSearchSubject] = useState('全部');
+  const [archiveSortBy, setArchiveSortBy] = useState<'default' | 'salary'>('default');
 
   // Pagination state
   const [onlinePage, setOnlinePage] = useState(1);
@@ -237,11 +242,13 @@ export default function AdminDashboard({
       triggerAlert('请输入需要解析的微信段落文本！', 'error');
       return;
     }
+    
+    setParseLoading(true);
 
     // Split raw text into individual blocks by looking for order number patterns first
     // Primary patterns: 【数字】号信息, 🌙【数字】, 【订单编号】, SH-2026, LL家教, etc.
     const rawBlocks = rawText
-      .split(/\n\s*\n|(?=🌙【\d+】)|(?=【\d+】号信息)|(?=【\d+】)|(?=\n家教编号[:：])|(?=\n订单编号[:：])|(?=\n编号[:：])|(?=【订单)|(?=\n\s*【家教编号】)|(?=SH-2026)|(?=\[.*?\]LL家教)|(?=LL家教)|(?=\s*[^\w\s\u4e00-\u9fff：:]\d{8,}(?!\/月))|(?=\s+[A-Za-z]{2,}\d{4,}[A-Za-z0-9]*)/gi)
+      .split(/\n\s*\n|(?=🌙【\d+】)|(?=【\d+】号信息)|(?=【\d+】)|(?=\n家教编号[:：])|(?=\n订单编号[:：])|(?=\n编号[:：])|(?=【订单)|(?=\n\s*【家教编号】)|(?=\s*【家教编号】)|(?=SH-2026)|(?=\[.*?\]LL家教)|(?=LL家教)|(?=\s*[^\w\s\u4e00-\u9fff：:]\d{8,}(?!\/月))|(?=\s+[A-Za-z]{2,}\d{4,}[A-Za-z0-9]*)|(?=[^\w\s\u4e00-\u9fff：:][A-Za-z]{2,}\d{4,}[A-Za-z0-9]*)|(?=\s*[^\w\s\u4e00-\u9fff：:]\d{6,}(?!\/月))|(?=\s*[^\w\s\u4e00-\u9fff：:]上海)|(?=\s*\[太阳\])|(?=\s*\[.*?\]上海)/gi)
       .map(b => b.trim())
       .filter(b => b.length > 8);
 
@@ -285,7 +292,7 @@ export default function AdminDashboard({
       }
       
       if (!orderId) {
-        const bracketIdMatch = block.match(/【(家教编号|订单编号|编号)】\s*([A-Za-z0-9-#]+)/i);
+        const bracketIdMatch = block.match(/【(家教编号|订单编号|编号)】[:：]?\s*([A-Za-z0-9-#]+)/i);
         if (bracketIdMatch) {
           orderId = bracketIdMatch[2];
           const idLineIndex = lines.findIndex(line => line.match(/【(家教编号|订单编号|编号)】/));
@@ -315,6 +322,42 @@ export default function AdminDashboard({
             orderId = numMatch[0];
             idLine = line.trim();
             break;
+          }
+        }
+      }
+      
+      // 规则3：查找 emoji + 字母数字组合（如 🍊CWL24032804）
+      if (!orderId) {
+        const emojiLetterMatch = block.match(/[^\w\s\u4e00-\u9fff：:]([A-Za-z]{2,}\d{4,}[A-Za-z0-9]*)/);
+        if (emojiLetterMatch) {
+          orderId = emojiLetterMatch[1];
+          const idLineIndex = lines.findIndex(line => line.match(/[^\w\s\u4e00-\u9fff：:][A-Za-z]{2,}\d{4,}/));
+          if (idLineIndex >= 0) {
+            idLine = lines[idLineIndex].trim();
+          }
+        }
+      }
+      
+      // 规则4：查找 emoji + 6位以上数字（如 🍅2230022、❤️2230108）
+      if (!orderId) {
+        const emojiNumMatch = block.match(/[^\w\s\u4e00-\u9fff：:](\d{6,})/);
+        if (emojiNumMatch) {
+          orderId = emojiNumMatch[1];
+          const idLineIndex = lines.findIndex(line => line.match(/[^\w\s\u4e00-\u9fff：:]\d{6,}/));
+          if (idLineIndex >= 0) {
+            idLine = lines[idLineIndex].trim();
+          }
+        }
+      }
+      
+      // 规则5：查找 "单" + 6位数字（如 暑假单261183、暑假单261184）
+      if (!orderId) {
+        const danNumMatch = block.match(/单(\d{6,})/);
+        if (danNumMatch) {
+          orderId = danNumMatch[1];
+          const idLineIndex = lines.findIndex(line => line.match(/单\d{6,}/));
+          if (idLineIndex >= 0) {
+            idLine = lines[idLineIndex].trim();
           }
         }
       }
@@ -525,6 +568,60 @@ export default function AdminDashboard({
           } else if (gradeNum >= 10 && gradeNum <= 12) {
             mathGrade = '高中';
           }
+        } else if (block.includes('新五年级')) {
+          mathGrade = '小学';
+          gradeDetail = '五年级';
+        } else if (block.includes('新六年级')) {
+          mathGrade = '小学';
+          gradeDetail = '六年级';
+        } else if (block.includes('新初一') || block.includes('新七年级')) {
+          mathGrade = '初中';
+          gradeDetail = '初一';
+        } else if (block.includes('新初二') || block.includes('新八年级')) {
+          mathGrade = '初中';
+          gradeDetail = '初二';
+        } else if (block.includes('新初三') || block.includes('新九年级')) {
+          mathGrade = '初中';
+          gradeDetail = '初三';
+        } else if (block.includes('新高一')) {
+          mathGrade = '高中';
+          gradeDetail = '高一';
+        } else if (block.includes('新高二')) {
+          mathGrade = '高中';
+          gradeDetail = '高二';
+        } else if (block.includes('新高三')) {
+          mathGrade = '高中';
+          gradeDetail = '高三';
+        } else if (block.includes('准初三') || block.includes('准九年级')) {
+          mathGrade = '初中';
+          gradeDetail = '初三';
+        } else if (block.includes('准初二') || block.includes('准八年级')) {
+          mathGrade = '初中';
+          gradeDetail = '初二';
+        } else if (block.includes('准初一') || block.includes('准七年级') || block.includes('准6年级')) {
+          mathGrade = '初中';
+          gradeDetail = '初一';
+        } else if (block.includes('准高二')) {
+          mathGrade = '高中';
+          gradeDetail = '高二';
+        } else if (block.includes('准高一')) {
+          mathGrade = '高中';
+          gradeDetail = '高一';
+        } else if (block.includes('准5年级') || block.includes('准五年级')) {
+          mathGrade = '小学';
+          gradeDetail = '五年级';
+        } else if (block.includes('准4年级') || block.includes('准四年级')) {
+          mathGrade = '小学';
+          gradeDetail = '四年级';
+        } else if (block.includes('准3年级') || block.includes('准三年级')) {
+          mathGrade = '小学';
+          gradeDetail = '三年级';
+        } else if (block.includes('准2年级') || block.includes('准二年级')) {
+          mathGrade = '小学';
+          gradeDetail = '二年级';
+        } else if (block.includes('准1年级') || block.includes('准一年级')) {
+          mathGrade = '小学';
+          gradeDetail = '一年级';
         } else if (block.includes('初三') || block.includes('九年级')) {
           mathGrade = '初中';
           gradeDetail = '初三';
@@ -714,7 +811,7 @@ export default function AdminDashboard({
       let priceMax = 0;
       let priceTextDisplay = '';
       
-      const salaryText = extractBracketField(block, ['补习薪资', '课时费', '薪资', '时薪', '报酬', '价格', '薪水']);
+      const salaryText = extractBracketField(block, ['补习薪资', '课时费', '薪资', '时薪', '报酬', '价格', '薪水', '到手时薪', '可付时薪', '可提供时薪', '课费报酬', '老师薪水', '课时费', '薪水']);
       let priceText = '';
       
       if (salaryText) {
@@ -791,7 +888,12 @@ export default function AdminDashboard({
           /(\d{2,5})\s*\/\s*课/i,               // xx/课
           /(\d{2,5})\s*元\s*\/\s*课/i,          // xx元/课
           /(\d{2,5})\s*元\s*一?节课/i,          // xx元一节课 / xx元节课
-          /(?:薪资|时薪|薪水)[:：\s]*(\d{2,5})\s*(?:元|\/h|\/月|\/小时)?/i // 薪资/时薪/薪水: xx
+          /(\d{2,5})\s*左右\s*\/\s*小时/i,       // xx左右/小时
+          /(\d{2,5})\s*左右\s*\/\s*次课/i,       // xx左右/次课
+          /(\d{2,5})\s*左右\s*\/\s*次/i,         // xx左右/次
+          /(\d{2,5})\s*左右\s*\/\s*h/i,          // xx左右/h
+          /(\d{2,5})\s*左右\s*\/\s*天/i,         // xx左右/天
+          /(?:薪资|时薪|薪水|老师薪水|课时费)[:：\s]*(\d{2,5})\s*(?:左右)?(?:元|\/h|\/月|\/小时|\/次课)?/i // 薪资/时薪/薪水/老师薪水/课时费: xx
         ];
         
         for (const pattern of singlePatterns) {
@@ -1196,6 +1298,8 @@ export default function AdminDashboard({
     } else {
       setRawText('');
     }
+    
+    setParseLoading(false);
   };
 
   // Draft editing form state hooks
@@ -1288,6 +1392,8 @@ export default function AdminDashboard({
       triggerAlert('请先在列表中勾选要上架的草稿订单！', 'error');
       return;
     }
+    
+    setPublishLoading(true);
 
     const itemsToPublish = drafts.filter(d => selectedDraftIds.includes(d.id));
     
@@ -1415,6 +1521,8 @@ export default function AdminDashboard({
     setSelectedDraftIds([]);
     setSelectedDraftId(null);
     triggerAlert(`一键极速上架成功：${itemsToPublish.length} 个订单已在前台及地图实时生效！`, 'success');
+    
+    setPublishLoading(false);
   };
 
   // 2. Delete selected drafts (批量删除草稿)
@@ -1607,6 +1715,12 @@ export default function AdminDashboard({
         const bViews = orderViewStats[b.id]?.total_views || 0;
         return bViews - aViews;
       });
+    } else if (onlineSortBy === 'salary') {
+      result = [...result].sort((a, b) => {
+        const aSalary = a.priceMax || a.priceMin || a.price || 0;
+        const bSalary = b.priceMax || b.priceMin || b.price || 0;
+        return bSalary - aSalary;
+      });
     }
     
     return result;
@@ -1622,7 +1736,7 @@ export default function AdminDashboard({
 
   // Filtering and paginating archive orders
   const filteredArchives = useMemo(() => {
-    return archives.filter(item => {
+    let result = archives.filter(item => {
       const matchKeyword = !archiveSearchKeyword ||
         (extractOrderNo(item.rawContent) || item.order_no || item.orderId || item.id).toLowerCase().includes(archiveSearchKeyword.toLowerCase()) ||
         item.studentDesc.toLowerCase().includes(archiveSearchKeyword.toLowerCase()) ||
@@ -1631,7 +1745,17 @@ export default function AdminDashboard({
       const matchSubject = archiveSearchSubject === '全部' || item.subject === archiveSearchSubject;
       return matchKeyword && matchDistrict && matchSubject;
     });
-  }, [archives, archiveSearchKeyword, archiveSearchDistrict, archiveSearchSubject]);
+    
+    if (archiveSortBy === 'salary') {
+      result = [...result].sort((a, b) => {
+        const aSalary = a.priceMax || a.priceMin || a.price || 0;
+        const bSalary = b.priceMax || b.priceMin || b.price || 0;
+        return bSalary - aSalary;
+      });
+    }
+    
+    return result;
+  }, [archives, archiveSearchKeyword, archiveSearchDistrict, archiveSearchSubject, archiveSortBy]);
 
   const paginatedArchives = useMemo(() => {
     const start = (archivePage - 1) * ARCHIVE_PER_PAGE;
@@ -2072,10 +2196,20 @@ export default function AdminDashboard({
                     </button>
                     <button
                       onClick={handleSmartParse}
-                      className="px-4 py-1.5 bg-orange-500 hover:bg-orange-600 text-white text-[10.5px] font-black rounded-md shadow-md flex items-center gap-1"
+                      disabled={parseLoading}
+                      className="px-4 py-1.5 bg-orange-500 hover:bg-orange-600 text-white text-[10.5px] font-black rounded-md shadow-md flex items-center gap-1 disabled:opacity-60"
                     >
-                      <Play className="w-3.5 h-3.5 shrink-0 fill-current" />
-                      <span>一键智能解析</span>
+                      {parseLoading ? (
+                        <>
+                          <Loader className="w-3.5 h-3.5 animate-spin" />
+                          <span>解析中...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Play className="w-3.5 h-3.5 shrink-0 fill-current" />
+                          <span>一键智能解析</span>
+                        </>
+                      )}
                     </button>
                   </div>
                 </div>
@@ -2116,11 +2250,20 @@ export default function AdminDashboard({
 
                     <button
                       onClick={handleBatchPublish}
-                      disabled={selectedDraftIds.length === 0}
+                      disabled={selectedDraftIds.length === 0 || publishLoading}
                       className="px-3.5 py-1 bg-orange-500 hover:bg-orange-600 text-white rounded text-[10.5px] font-bold shadow-md flex items-center gap-1 disabled:opacity-45"
                     >
-                      <Check className="w-3.5 h-3.5" />
-                      <span>批量上架发布 ({selectedDraftIds.length})</span>
+                      {publishLoading ? (
+                        <>
+                          <Loader className="w-3.5 h-3.5 animate-spin" />
+                          <span>上架中...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Check className="w-3.5 h-3.5" />
+                          <span>批量上架发布 ({selectedDraftIds.length})</span>
+                        </>
+                      )}
                     </button>
                   </div>
                 )}
@@ -2487,7 +2630,9 @@ export default function AdminDashboard({
                 <span className="w-24 shrink-0">唯一编号</span>
                 <span className="w-20 shrink-0 text-center">行政区</span>
                 <span className="w-24 shrink-0 text-center">学段/科目</span>
-                <span className="w-32 shrink-0">时薪费用</span>
+                <span className="w-32 shrink-0 cursor-pointer hover:text-orange-400 transition-colors" onClick={() => setOnlineSortBy(onlineSortBy === 'salary' ? 'default' : 'salary')}>
+                  时薪费用 {onlineSortBy === 'salary' && '↓'}
+                </span>
                 <span className="flex-1 min-w-0 pr-6">学生辅导要求快览</span>
                 <span className="w-16 text-center shrink-0 cursor-pointer hover:text-orange-400 transition-colors" onClick={() => setOnlineSortBy(onlineSortBy === 'views' ? 'default' : 'views')}>
                   浏览次数 {onlineSortBy === 'views' && '↓'}
@@ -2789,7 +2934,9 @@ export default function AdminDashboard({
                 <span className="w-24 shrink-0">编号</span>
                 <span className="w-24 shrink-0 text-center">行政区</span>
                 <span className="w-28 shrink-0 text-center">类别科目</span>
-                <span className="w-28 shrink-0">费用时薪</span>
+                <span className="w-28 shrink-0 cursor-pointer hover:text-orange-400 transition-colors" onClick={() => setArchiveSortBy(archiveSortBy === 'salary' ? 'default' : 'salary')}>
+                  费用时薪 {archiveSortBy === 'salary' && '↓'}
+                </span>
                 <span className="flex-1 min-w-0 px-4">留档事由与备注</span>
                 <span className="w-36 text-right shrink-0">归档入账时间</span>
               </div>

@@ -15,6 +15,7 @@ import LandmarkModal from './components/LandmarkModal';
 import ShanghaiRadarMap from './components/ShanghaiRadarMap';
 import AdminDashboard from './components/AdminDashboard';
 import { api } from './services/api';
+import { parseSalary } from './services/salaryParser';
 
 // 从raw_content中提取订单编号
 function extractOrderNo(rawContent: string | undefined): string {
@@ -38,6 +39,18 @@ export default function App() {
       page_title: document.title,
       referrer: document.referrer
     }).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const preloadAMap = async () => {
+      try {
+        await loadAMapScript();
+      } catch (e) {
+        // 静默失败，不影响主流程
+      }
+    };
+    const timer = setTimeout(preloadAMap, 1000);
+    return () => clearTimeout(timer);
   }, []);
 
   useEffect(() => {
@@ -89,15 +102,20 @@ export default function App() {
             address: order.address,
             requirements: order.requirements || '男女教员均可',
             price: order.salary_max || order.salary_min || 0,
-            priceText: order.salary_min && order.salary_max 
-              ? (order.salary_min === order.salary_max 
-                  ? `${order.salary_min}/h` 
-                  : `${order.salary_min}-${order.salary_max}/h`) 
-              : (order.salary_min ? `${order.salary_min}/h` : '面议'),
-            isHighPrice: (order.salary_max || order.salary_min || 0) >= 120,
+            priceText: (() => {
+              const r = parseSalary(order.raw_content || '', order.salary_min, order.salary_max);
+              return r.priceText;
+            })(),
+            isHighPrice: (() => {
+              const r = parseSalary(order.raw_content || '', order.salary_min, order.salary_max);
+              return r.hourlyRateMax >= 120;
+            })(),
             isOnline: order.teaching_type === '网课',
             isCollegeStudent: true,
-            isNegotiable: !order.salary_min && !order.salary_max,
+            isNegotiable: (() => {
+              const r = parseSalary(order.raw_content || '', order.salary_min, order.salary_max);
+              return r.isNegotiable;
+            })(),
             contactTeacher: 'Ken06103',
             publishTime: order.published_at || order.created_at || new Date().toISOString(),
             rawContent: order.raw_content || '',
@@ -1871,13 +1889,20 @@ export default function App() {
                           address: order.address,
                           requirements: order.requirements || '男女教员均可',
                           price: order.salary_max || order.salary_min || 0,
-                          priceText: order.salary_min && order.salary_max 
-                            ? `${order.salary_min}-${order.salary_max}/h` 
-                            : (order.salary_min ? `${order.salary_min}/h` : '面议'),
-                          isHighPrice: (order.salary_max || order.salary_min || 0) >= 120,
+                          priceText: (() => {
+                            const r = parseSalary(order.raw_content || '', order.salary_min, order.salary_max);
+                            return r.priceText;
+                          })(),
+                          isHighPrice: (() => {
+                            const r = parseSalary(order.raw_content || '', order.salary_min, order.salary_max);
+                            return r.hourlyRateMax >= 120;
+                          })(),
                           isOnline: order.teaching_type === '网课',
                           isCollegeStudent: true,
-                          isNegotiable: !order.salary_min && !order.salary_max,
+                          isNegotiable: (() => {
+                            const r = parseSalary(order.raw_content || '', order.salary_min, order.salary_max);
+                            return r.isNegotiable;
+                          })(),
                           contactTeacher: 'Ken06103',
                           publishTime: order.published_at || order.created_at || new Date().toISOString(),
                           rawContent: order.raw_content || '',

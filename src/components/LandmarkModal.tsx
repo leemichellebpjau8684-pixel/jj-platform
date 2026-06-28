@@ -30,6 +30,7 @@ export default function LandmarkModal({
   // Search keyword variables
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<Landmark[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
 
   // Standard locations for quick pick in Search Sub-tab
   const SHANGHAI_QUICK_LANDMARKS: Landmark[] = [
@@ -47,89 +48,83 @@ export default function LandmarkModal({
     setNearbyLandmarks([]);
     
     try {
-      // 使用高德地图定位服务
-      await loadAMapScript();
-      
-      const AMap = (window as any).AMap;
-      if (!AMap) {
-        throw new Error('高德地图加载失败');
+      if (!navigator.geolocation) {
+        throw new Error('您的浏览器不支持定位功能，请使用现代浏览器');
       }
-      
-      // 确保Geolocation插件已加载
-      await new Promise<void>((resolve, reject) => {
-        AMap.plugin('AMap.Geolocation', () => {
-          const geolocation = new AMap.Geolocation({
-            enableHighAccuracy: true, // 使用高精度定位
-            timeout: 10000,
-            buttonOffset: new AMap.Pixel(10, 20),
-            zoomToAccuracy: true,
-            buttonPosition: 'RB'
-          });
-          
-          geolocation.getCurrentPosition(async (status: string, result: any) => {
-            if (status === 'complete') {
-              try {
-                const { position } = result;
-                const lng = position.getLng();
-                const lat = position.getLat();
-                const coordinate: Coordinate = { lat, lng };
-                
-                // 使用反向地理编码获取真实地址
-                const geoResolved = await reverseGeocode(coordinate);
-                
-                const resolvedGpsLandmark: Landmark = {
-                  id: 'gps_' + Date.now(),
-                  name: geoResolved.name || '当前位置',
-                  address: geoResolved.address,
-                  coordinate,
-                  type: 'gps'
-                };
-                setSelectedTempLandmark(resolvedGpsLandmark);
-                
-                // 使用搜索附近的POI
-                const nearbyPOIs = await searchPOIs(geoResolved.name || '当前位置');
-                
-                // 合并POI结果，最多显示6个附近地标
-                const nearbyResults: Landmark[] = nearbyPOIs.slice(0, 6).map((poi, idx) => ({
-                  ...poi,
-                  distance: getDistanceFromCoords(coordinate, poi.coordinate)
-                }));
-                
-                // 如果POI结果不足，添加默认附近地标
-                if (nearbyResults.length < 6) {
-                  const defaultNearby: Landmark[] = [
-                    { id: 'near_default_1', name: '地面停车场', address: `${geoResolved.address}附近停车场`, coordinate: { lat: lat + 0.001, lng: lng - 0.001 }, type: 'custom', distance: getDistanceFromCoords(coordinate, { lat: lat + 0.001, lng: lng - 0.001 }) },
-                    { id: 'near_default_2', name: '便利店/超市', address: `${geoResolved.address}附近便利店`, coordinate: { lat: lat + 0.0008, lng: lng + 0.0008 }, type: 'custom', distance: getDistanceFromCoords(coordinate, { lat: lat + 0.0008, lng: lng + 0.0008 }) },
-                    { id: 'near_default_3', name: '公交站', address: `${geoResolved.address}附近公交站`, coordinate: { lat: lat - 0.0012, lng: lng + 0.0005 }, type: 'custom', distance: getDistanceFromCoords(coordinate, { lat: lat - 0.0012, lng: lng + 0.0005 }) }
-                  ];
-                  const filteredDefaults = defaultNearby.filter(d => !nearbyResults.find(r => r.id === d.id)).slice(0, 6 - nearbyResults.length);
-                  nearbyResults.push(...filteredDefaults);
-                }
-                
-                setNearbyLandmarks(nearbyResults.sort((a, b) => (a.distance || 0) - (b.distance || 0)));
-                setGpsLoading(false);
-              } catch (geoError) {
-                console.error('地理编码失败:', geoError);
-                // 即使地理编码失败，也使用原始坐标
-                const coordinate: Coordinate = { lat: result.position.getLat(), lng: result.position.getLng() };
-                const resolvedGpsLandmark: Landmark = {
-                  id: 'gps_' + Date.now(),
-                  name: '当前位置',
-                  address: `经度:${coordinate.lng.toFixed(4)}, 纬度:${coordinate.lat.toFixed(4)}`,
-                  coordinate,
-                  type: 'gps'
-                };
-                setSelectedTempLandmark(resolvedGpsLandmark);
-                setNearbyLandmarks([]);
-                setGpsLoading(false);
-              }
-            } else {
-              // 定位失败
-              throw new Error('无法获取您的位置信息，请检查定位权限设置');
-            }
-          });
-        });
+
+      const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(
+          resolve,
+          (err) => {
+            let message = '无法获取您的位置信息';
+            if (err.code === 1) message = '定位权限被拒绝，请在浏览器设置中允许定位权限';
+            else if (err.code === 2) message = '无法获取位置信息，请检查设备定位功能';
+            else if (err.code === 3) message = '定位超时，请稍后重试';
+            reject(new Error(message));
+          },
+          {
+            enableHighAccuracy: false,
+            timeout: 5000,
+            maximumAge: 30000
+          }
+        );
       });
+
+      const { latitude: lat, longitude: lng } = position.coords;
+      const coordinate: Coordinate = { lat, lng };
+
+      const initialLandmark: Landmark = {
+        id: 'gps_' + Date.now(),
+        name: '当前位置',
+        address: `经度:${lng.toFixed(4)}, 纬度:${lat.toFixed(4)}`,
+        coordinate,
+        type: 'gps'
+      };
+      setSelectedTempLandmark(initialLandmark);
+      setGpsLoading(false);
+
+      (async () => {
+        try {
+          await loadAMapScript();
+          
+          const [geoResolved, nearbyPOIs] = await Promise.all([
+            reverseGeocode(coordinate).catch(() => null),
+            searchPOIs('当前位置').catch(() => [])
+          ]);
+
+          if (geoResolved) {
+            const resolvedLandmark: Landmark = {
+              id: initialLandmark.id,
+              name: geoResolved.name || '当前位置',
+              address: geoResolved.address,
+              coordinate,
+              type: 'gps'
+            };
+            setSelectedTempLandmark(prev => prev?.id === initialLandmark.id ? resolvedLandmark : prev);
+          }
+
+          if (nearbyPOIs.length > 0) {
+            const nearbyResults: Landmark[] = nearbyPOIs.slice(0, 6).map((poi, idx) => ({
+              ...poi,
+              distance: getDistanceFromCoords(coordinate, poi.coordinate)
+            }));
+            
+            if (nearbyResults.length < 6) {
+              const defaultNearby: Landmark[] = [
+                { id: 'near_default_1', name: '地面停车场', address: '附近停车场', coordinate: { lat: lat + 0.001, lng: lng - 0.001 }, type: 'custom', distance: getDistanceFromCoords(coordinate, { lat: lat + 0.001, lng: lng - 0.001 }) },
+                { id: 'near_default_2', name: '便利店/超市', address: '附近便利店', coordinate: { lat: lat + 0.0008, lng: lng + 0.0008 }, type: 'custom', distance: getDistanceFromCoords(coordinate, { lat: lat + 0.0008, lng: lng + 0.0008 }) },
+                { id: 'near_default_3', name: '公交站', address: '附近公交站', coordinate: { lat: lat - 0.0012, lng: lng + 0.0005 }, type: 'custom', distance: getDistanceFromCoords(coordinate, { lat: lat - 0.0012, lng: lng + 0.0005 }) }
+              ];
+              const filteredDefaults = defaultNearby.filter(d => !nearbyResults.find(r => r.id === d.id)).slice(0, 6 - nearbyResults.length);
+              nearbyResults.push(...filteredDefaults);
+            }
+            
+            setNearbyLandmarks(nearbyResults.sort((a, b) => (a.distance || 0) - (b.distance || 0)));
+          }
+        } catch (e) {
+          // 静默失败，已显示基本坐标
+        }
+      })();
     } catch (error) {
       console.error('GPS定位失败:', error);
       setGpsError(error instanceof Error ? error.message : '定位服务不可用，请检查浏览器定位权限设置');
@@ -156,6 +151,8 @@ export default function LandmarkModal({
     }
     const query = searchQuery.toLowerCase().trim();
     
+    setSearchLoading(true);
+    
     const allCandidates = [...SHANGHAI_UNIVERSITIES, ...SHANGHAI_QUICK_LANDMARKS];
     const filtered = allCandidates.filter(item => 
       item.name.toLowerCase().includes(query) || 
@@ -172,6 +169,8 @@ export default function LandmarkModal({
     } catch (e) {
       console.error('POI search error:', e);
       setSearchResults(filtered.length > 0 ? filtered : []);
+    } finally {
+      setSearchLoading(false);
     }
   };
 
@@ -443,9 +442,20 @@ export default function LandmarkModal({
                   <button
                     id="landmark-search-submit"
                     onClick={handleSearch}
-                    className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-medium text-sm transition-colors cursor-pointer shrink-0"
+                    disabled={searchLoading}
+                    className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-medium text-sm transition-colors cursor-pointer shrink-0 disabled:opacity-60 flex items-center gap-2"
                   >
-                    搜索地标
+                    {searchLoading ? (
+                      <>
+                        <Loader className="w-4 h-4 animate-spin" />
+                        <span>搜索中...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Search className="w-4 h-4" />
+                        <span>搜索地标</span>
+                      </>
+                    )}
                   </button>
                 </div>
 
