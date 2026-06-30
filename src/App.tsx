@@ -493,6 +493,8 @@ export default function App() {
   const [selectedSubjects, setSelectedSubjects] = useState<string[]>([]);
   const [isSubjectDropdownOpen, setIsSubjectDropdownOpen] = useState(false);
 
+  const [geocodedCache, setGeocodedCache] = useState<Record<string, { lat: number; lng: number }>>({});
+
   // Keyword query
   const [searchQuery, setSearchQuery] = useState('');
   const [appliedSearchQuery, setAppliedSearchQuery] = useState('');
@@ -966,7 +968,7 @@ export default function App() {
 
       {/* 5. Main Multi-conditions Filter section */}
       <nav className="hidden md:block bg-white px-6 py-3 border-b border-gray-200 flex flex-col gap-2 shrink-0 z-10 shadow-sm">
-        {/* PC Layout: Horizontal */}
+        {/* PC Layout: First Row - Filters and Quick Tags */}
         <div className="flex items-center justify-between gap-3">
           
           {/* Dropdown Filters Block */}
@@ -1210,27 +1212,6 @@ export default function App() {
 
           </div>
 
-          {/* Search Box */}
-          <div className="flex-1 relative">
-            <input
-              id="baseline-keyword-search"
-              type="text"
-              placeholder="可输入地区、年级、科目关键词组合检索 (如: 杨浦 高三 数学)"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-4 py-2.5 bg-gray-100 border-none rounded text-base focus:ring-1.5 focus:ring-orange-500 focus:bg-white text-gray-800 placeholder-gray-400 focus:outline-none transition-all"
-            />
-            <Search className="w-5 h-5 absolute left-3 top-2.5 text-gray-400" />
-            {searchQuery && (
-              <button
-                onClick={() => setSearchQuery('')}
-                className="absolute right-2.5 top-2 text-gray-400 hover:text-gray-600 p-0.5 rounded-full"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            )}
-          </div>
-
           {/* Quick Filter Tags (Rounded Pills) */}
           <div className="flex items-center gap-2 shrink-0">
             <button
@@ -1298,6 +1279,27 @@ export default function App() {
             )}
           </div>
 
+        </div>
+
+        {/* PC Layout: Second Row - Search Box */}
+        <div className="flex-1 relative">
+          <input
+            id="baseline-keyword-search"
+            type="text"
+            placeholder="可输入地区、年级、科目关键词组合检索 (如: 杨浦 高三 数学)"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full pl-9 pr-4 py-2.5 bg-gray-100 border-none rounded text-base focus:ring-1.5 focus:ring-orange-500 focus:bg-white text-gray-800 placeholder-gray-400 focus:outline-none transition-all"
+          />
+          <Search className="w-5 h-5 absolute left-3 top-2.5 text-gray-400" />
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery('')}
+              className="absolute right-2.5 top-2 text-gray-400 hover:text-gray-600 p-0.5 rounded-full"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
         </div>
 
         {/* 6. Active Location Binding - PC only */}
@@ -2265,7 +2267,7 @@ export default function App() {
           <div className="flex-1 w-full h-full flex flex-col relative">
             <nav className="bg-white px-4 py-3 border-b border-gray-200 flex flex-col gap-2 shrink-0 z-10 shadow-sm">
               <div className="flex items-center justify-between gap-3">
-                <div className="flex gap-1.5 shrink-0 relative items-center">
+                <div className="flex gap-1.5 flex-1 relative items-center">
                   <button
                     onClick={() => setIsLandmarkModalOpen(true)}
                     className="w-8 h-8 bg-orange-500 rounded-full shadow flex items-center justify-center ring-2 ring-white hover:bg-orange-600 transition-colors shrink-0"
@@ -2274,7 +2276,7 @@ export default function App() {
                     <MapPin className="w-4 h-4 text-white" />
                   </button>
 
-                  <div className="relative">
+                  <div className="relative flex-1">
                     <button
                       onClick={() => {
                         setIsDistrictDropdownOpen(!isDistrictDropdownOpen);
@@ -2282,14 +2284,14 @@ export default function App() {
                         setIsSubjectDropdownOpen(false);
                         setTempDistricts(selectedDistricts);
                       }}
-                      className={`px-3 py-2 border rounded text-sm flex items-center justify-between gap-1 hover:bg-gray-50 font-medium transition-all ${
+                      className={`w-full px-2 py-2 border rounded text-sm flex items-center justify-between gap-1 hover:bg-gray-50 font-medium transition-all ${
                         selectedDistricts.length > 0 
                         ? 'border-orange-500 bg-orange-50/30 text-orange-700' 
                         : 'bg-gray-50 border-gray-200 text-gray-700'
                       }`}
                     >
-                      <span>{selectedDistricts.length === 0 ? '地区' : `地区(${selectedDistricts.length})`}</span>
-                      <ChevronDown className="w-4 h-4 text-gray-400" />
+                      <span className="truncate">{selectedDistricts.length === 0 ? '地区' : `地区(${selectedDistricts.length})`}</span>
+                      <ChevronDown className="w-4 h-4 text-gray-400 shrink-0" />
                     </button>
                     {isDistrictDropdownOpen && (
                       <div className="absolute top-8 left-0 w-56 bg-white border border-gray-200 rounded-xl shadow-xl p-3 z-40">
@@ -2346,7 +2348,7 @@ export default function App() {
                     )}
                   </div>
 
-                  <div className="relative">
+                  <div className="relative flex-1">
                     <button
                       onClick={() => {
                         setIsGradeDropdownOpen(!isGradeDropdownOpen);
@@ -2354,14 +2356,14 @@ export default function App() {
                         setIsSubjectDropdownOpen(false);
                         setTempGrades(selectedGrades);
                       }}
-                      className={`px-3 py-2 border rounded text-sm flex items-center justify-between gap-1 hover:bg-gray-50 font-medium transition-all ${
+                      className={`w-full px-2 py-2 border rounded text-sm flex items-center justify-between gap-1 hover:bg-gray-50 font-medium transition-all ${
                         selectedGrades.length > 0
                         ? 'border-orange-500 bg-orange-50/30 text-orange-700'
                         : 'bg-gray-50 border-gray-200 text-gray-700'
                       }`}
                     >
-                      <span>{selectedGrades.length === 0 ? '年级' : `年级(${selectedGrades.length})`}</span>
-                      <ChevronDown className="w-4 h-4 text-gray-400" />
+                      <span className="truncate">{selectedGrades.length === 0 ? '年级' : `年级(${selectedGrades.length})`}</span>
+                      <ChevronDown className="w-4 h-4 text-gray-400 shrink-0" />
                     </button>
                     {isGradeDropdownOpen && (
                       <div className="absolute top-8 left-0 w-48 bg-white border border-gray-200 rounded-xl shadow-xl p-3 z-40">
@@ -2418,7 +2420,7 @@ export default function App() {
                     )}
                   </div>
 
-                  <div className="relative">
+                  <div className="relative flex-1">
                     <button
                       onClick={() => {
                         setIsSubjectDropdownOpen(!isSubjectDropdownOpen);
@@ -2426,14 +2428,14 @@ export default function App() {
                         setIsGradeDropdownOpen(false);
                         setTempSubjects(selectedSubjects);
                       }}
-                      className={`px-3 py-2 border rounded text-sm flex items-center justify-between gap-1 hover:bg-gray-50 font-medium transition-all ${
+                      className={`w-full px-2 py-2 border rounded text-sm flex items-center justify-between gap-1 hover:bg-gray-50 font-medium transition-all ${
                         selectedSubjects.length > 0
                         ? 'border-orange-500 bg-orange-50/30 text-orange-700'
                         : 'bg-gray-50 border-gray-200 text-gray-700'
                       }`}
                     >
-                      <span>{selectedSubjects.length === 0 ? '科目' : `科目(${selectedSubjects.length})`}</span>
-                      <ChevronDown className="w-4 h-4 text-gray-400" />
+                      <span className="truncate">{selectedSubjects.length === 0 ? '科目' : `科目(${selectedSubjects.length})`}</span>
+                      <ChevronDown className="w-4 h-4 text-gray-400 shrink-0" />
                     </button>
                     {isSubjectDropdownOpen && (
                       <div className="absolute top-8 left-0 w-56 bg-white border border-gray-200 rounded-xl shadow-xl p-3 z-40">
@@ -2490,7 +2492,9 @@ export default function App() {
                     )}
                   </div>
                 </div>
+              </div>
 
+              <div className="flex items-center gap-2">
                 <div className="flex-1 relative">
                   <input
                     type="text"
@@ -2523,14 +2527,14 @@ export default function App() {
               </div>
 
               {currentLandmark && (
-                <div className="flex items-center justify-between text-xs text-gray-500">
-                  <div className="flex items-center gap-2">
+                <div className="flex items-center justify-between text-[10px] text-gray-500">
+                  <div className="flex items-center gap-1.5">
                     <span className="text-cyan-600 font-semibold">当前位置:</span>
-                    <span className="font-medium text-gray-700">{currentLandmark.name}</span>
+                    <span className="font-medium text-gray-700 truncate max-w-[100px]">{currentLandmark.name}</span>
                     <span className="text-gray-400">|</span>
-                    <span>搜索范围: {advancedFilters.maxDistance}公里</span>
+                    <span className="shrink-0">搜索范围: {advancedFilters.maxDistance}公里</span>
                   </div>
-                  <span>共 {filteredOrders.length} 个订单</span>
+                  <span className="shrink-0">共 {filteredOrders.length} 个订单</span>
                 </div>
               )}
             </nav>
@@ -2544,6 +2548,9 @@ export default function App() {
               onModifyLandmark={() => setIsLandmarkModalOpen(true)}
               activeTab={activeTab}
               onUpdateLandmark={setCurrentLandmark}
+              selectedDistricts={selectedDistricts}
+              geocodedCache={geocodedCache}
+              setGeocodedCache={setGeocodedCache}
             />
           </div>
         ) : (

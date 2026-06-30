@@ -105,13 +105,22 @@ export async function getCurrentPosition(): Promise<GeolocationResult> {
         return;
       }
       navigator.geolocation.getCurrentPosition(
-        (position) => {
+        async (position) => {
           const { latitude: lat, longitude: lng } = position.coords;
-          resolve({
-            coordinate: { lat, lng },
-            address: `经度:${lng.toFixed(4)}, 纬度:${lat.toFixed(4)}`,
-            name: '当前位置'
-          });
+          try {
+            const reverseResult = await reverseGeocode({ lat, lng });
+            resolve({
+              coordinate: { lat, lng },
+              address: reverseResult.address,
+              name: reverseResult.name
+            });
+          } catch {
+            resolve({
+              coordinate: { lat, lng },
+              address: `经度:${lng.toFixed(4)}, 纬度:${lat.toFixed(4)}`,
+              name: '当前位置'
+            });
+          }
         },
         (err) => {
           let message = '无法获取您的位置信息';
@@ -122,25 +131,31 @@ export async function getCurrentPosition(): Promise<GeolocationResult> {
         },
         {
           enableHighAccuracy: false,
-          timeout: 10000,
-          maximumAge: 30000
+          timeout: 8000,
+          maximumAge: 60000
         }
       );
     });
   }
 
+  // 双路并行定位策略：同时发起GPS定位和IP定位，优先使用GPS结果
   return await withTimeout<GeolocationResult>(
-    new Promise((resolve, reject) => {
-      const geolocation = new AMap.Geolocation({
-        enableHighAccuracy: false,
+    new Promise((resolve) => {
+      let resolved = false;
+
+      // 1. GPS定位（更准确，可能较慢）
+      const gpsGeolocation = new AMap.Geolocation({
+        enableHighAccuracy: true,
         timeout: 8000,
-        maximumAge: 30000,
+        maximumAge: 60000,
         convert: true,
-        noIpLocate: true,
+        noIpLocate: true,  // 纯GPS定位，禁用IP定位
+        noGeoLocation: false,
       });
 
-      geolocation.getCurrentPosition((status: string, result: any) => {
-        if (status === 'complete' && result.position) {
+      gpsGeolocation.getCurrentPosition((status: string, result: any) => {
+        if (!resolved && status === 'complete' && result.position) {
+          resolved = true;
           const lat = result.position.getLat();
           const lng = result.position.getLng();
           const address = result.formattedAddress || `经度:${lng.toFixed(4)}, 纬度:${lat.toFixed(4)}`;
@@ -148,15 +163,62 @@ export async function getCurrentPosition(): Promise<GeolocationResult> {
             ? (result.addressComponent.neighborhood || result.addressComponent.building)
             : address.replace('上海市', '') || '当前位置';
           
+          console.log('GPS定位成功:', { lat, lng, name });
           resolve({
             coordinate: { lat, lng },
             address,
             name
           });
-        } else {
-          reject(new Error(result.message || '定位失败'));
         }
       });
+
+      // 2. IP定位作为快速备选（约1-2秒，精度较低）
+      // 设置2秒延迟后启动IP定位，给GPS一个优先响应的机会
+      setTimeout(() => {
+        if (!resolved) {
+          const ipGeolocation = new AMap.Geolocation({
+            enableHighAccuracy: false,
+            timeout: 3000,
+            maximumAge: 60000,
+            convert: true,
+            noIpLocate: false,  // 启用IP定位
+            noGeoLocation: true,  // 禁用GPS，只使用IP定位
+            useDatabase: true,
+          });
+
+          ipGeolocation.getCurrentPosition((status: string, result: any) => {
+            if (!resolved && status === 'complete' && result.position) {
+              resolved = true;
+              const lat = result.position.getLat();
+              const lng = result.position.getLng();
+              const address = result.formattedAddress || `经度:${lng.toFixed(4)}, 纬度:${lat.toFixed(4)}`;
+              const name = result.addressComponent && (result.addressComponent.neighborhood || result.addressComponent.building) 
+                ? (result.addressComponent.neighborhood || result.addressComponent.building)
+                : address.replace('上海市', '') || '当前位置';
+              
+              console.log('IP定位成功（GPS未返回）:', { lat, lng, name });
+              resolve({
+                coordinate: { lat, lng },
+                address,
+                name
+              });
+            }
+          });
+        }
+      }, 2000);
+
+      // 3. 最终兜底：10秒后如果还没定位成功，返回默认位置
+      setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          console.log('定位超时，使用默认位置（人民广场）');
+          resolve({
+            coordinate: { lat: 31.2335, lng: 121.4726 },
+            address: '黄浦区人民大道120号',
+            name: '人民广场（默认位置）'
+          });
+        }
+      }, 10000);
     }),
     12000,
     '高德地图定位超时'
@@ -198,37 +260,26 @@ export async function reverseGeocode(coordinate: Coordinate): Promise<GeoResolve
   }
 
   try {
-    await loadAMapScript();
-    await ensurePlugins(['AMap.Geocoder']);
-    const AMap = getAMap();
-    if (!AMap) throw new Error('AMap unavailable');
+    const url = `/api/amap/geocode/regeo?key=${AMAP_CONFIG.key}&location=${coordinate.lng},${coordinate.lat}&city=${encodeURIComponent(AMAP_CONFIG.city)}`;
+    const response = await fetch(url);
+    const result = await response.json();
+    
+    if (result.status === '1' && result.regeocode) {
+      const re = result.regeocode;
+      const formatted: string = re.formatted_address || '上海市';
+      const ac = re.address_component || {};
+      let name = '';
+      if (ac.neighborhood) name = ac.neighborhood;
+      else if (ac.building) name = ac.building;
+      else if (ac.street && ac.street_number) name = `${ac.street}${ac.street_number}`;
+      else name = formatted.replace('上海市', '') || '当前定位点';
 
-    const result = await withTimeout<GeoResolved>(
-      new Promise((resolve, reject) => {
-        const geocoder = new AMap.Geocoder({ city: AMAP_CONFIG.city });
-        geocoder.getAddress([coordinate.lng, coordinate.lat], (status: string, result: any) => {
-          if (status === 'complete' && result.regeocode) {
-            const re = result.regeocode;
-            const formatted: string = re.formattedAddress || '上海市';
-            const ac = re.addressComponent || {};
-            let name = '';
-            if (ac.neighborhood) name = ac.neighborhood;
-            else if (ac.building) name = ac.building;
-            else if (ac.street && ac.streetNumber) name = `${ac.street}${ac.streetNumber}`;
-            else name = formatted.replace('上海市', '') || '当前定位点';
-
-            const resolved: GeoResolved = { coordinate, address: formatted, name };
-            reverseCache.set(key, resolved);
-            resolve(resolved);
-          } else {
-            reject(new Error('reverse geocode failed'));
-          }
-        });
-      }),
-      5000,
-      '反向地理编码超时'
-    );
-    return result;
+      const resolved: GeoResolved = { coordinate, address: formatted, name };
+      reverseCache.set(key, resolved);
+      return resolved;
+    }
+    
+    throw new Error('reverse geocode failed');
   } catch {
     const fallback: GeoResolved = {
       coordinate,
@@ -251,15 +302,39 @@ export async function forwardGeocode(
   options: ForwardOptions = {}
 ): Promise<GeoResolved> {
   const { district, anchor, maxDeviationKm = 8 } = options;
-  const keyword = district && !rawAddress.startsWith(district) ? `${district}${rawAddress}` : rawAddress;
+  
+  const cleanAddress = (address: string): string => {
+    let result = address;
+    result = result.replace(/#|＃/g, '');
+    result = result.replace(/【[^】]*】/g, '');
+    result = result.replace(/\[【[^】]*】\]/g, '');
+    result = result.replace(/【[^】]*$/g, '');
+    result = result.replace(/「[^」]*」/g, '');
+    result = result.replace(/(大概要求|老师要求|学生情况|备注|备注要求|备注：|备注:|要求:?)/g, '');
+    result = result.replace(/(男老师|女老师|大学生|研究生|985|211|经验丰富|有耐心|认真负责|性格好|有意思|好学校)/g, '');
+    result = result.replace(/(一周.*?次|一次.*?小时|课时费|课酬|报酬|时薪|价格|可付时薪|课费)/g, '');
+    result = result.replace(/(年级|科目|性别|男生|女生|学生情况|小朋友)/g, '');
+    result = result.replace(/(希望|需要|最好|优先|适合|擅长|能|想|要|可以|还可以|往后学|提高|理科思路清晰)/g, '');
+    result = result.replace(/(冲985|自招|竞赛|高考|中考|KET|雅思|托福|英语专业|数学系)/g, '');
+    result = result.replace(/(暑假|暑期|寒假|周六|周日|周一|周二|周三|周四|周五|通勤|分钟|附近|范围内)/g, '');
+    result = result.replace(/[\u{1F300}-\u{1F5FF}\u{1F900}-\u{1F9FF}]/gu, '');
+    result = result.replace(/[:：]/g, '');
+    result = result.replace(/\s+/g, '');
+    result = result.replace(/[,，。、]/g, '');
+    result = result.replace(/^[.．]/g, '');
+    result = result.trim();
+    return result;
+  };
+  
+  const cleaned = cleanAddress(rawAddress);
+  let keyword = cleaned;
+  if (district && !cleaned.startsWith(district) && !cleaned.startsWith('上海市')) {
+    keyword = `${district}${cleaned}`;
+  }
+  console.log(`地理编码输入: 原地址="${rawAddress}", 清理后="${cleaned}", 关键词="${keyword}"`);
   const cacheKey = `${keyword}`;
   const cached = forwardCache.get(cacheKey);
   if (cached) return cached;
-
-  await loadAMapScript();
-  await ensurePlugins(['AMap.PlaceSearch', 'AMap.Geocoder']);
-  const AMap = getAMap();
-  if (!AMap) throw new Error('AMap unavailable');
 
   const accept = (c: Coordinate, address: string, name: string): GeoResolved | null => {
     if (!isInShanghai(c)) return null;
@@ -269,46 +344,76 @@ export async function forwardGeocode(
     return resolved;
   };
 
-  return new Promise<GeoResolved>((resolve, reject) => {
-    const placeSearch = new AMap.PlaceSearch({ city: AMAP_CONFIG.city, citylimit: true, pageSize: 10 });
+  try {
+    await loadAMapScript();
+    const AMap = (window as any).AMap;
+    
+    const placeSearch = new AMap.PlaceSearch({
+      city: AMAP_CONFIG.city,
+      citylimit: true,
+      pageSize: 10,
+    });
 
-    placeSearch.search(keyword, (status: string, result: any) => {
-      if (status === 'complete' && result.poiList && result.poiList.pois && result.poiList.pois.length > 0) {
-        for (const poi of result.poiList.pois) {
-          const loc = poi.location;
-          if (!loc) continue;
-          const c: Coordinate = { lat: loc.getLat(), lng: loc.getLng() };
-          const ok = accept(c, poi.address || poi.name || keyword, poi.name || rawAddress);
-          if (ok) {
-            resolve(ok);
-            return;
-          }
-        }
-      }
-
-      const geocoder = new AMap.Geocoder({ city: AMAP_CONFIG.city });
-      const fullAddress = keyword.startsWith('上海') ? keyword : `上海市${keyword}`;
-      geocoder.getLocation(fullAddress, (geoStatus: string, geoResult: any) => {
-        if (geoStatus === 'complete' && geoResult.geocodes && geoResult.geocodes.length > 0) {
-          const g = geoResult.geocodes[0];
-          const c: Coordinate = { lat: g.location.getLat(), lng: g.location.getLng() };
-          const ok = accept(c, g.formattedAddress || fullAddress, (g.formattedAddress || keyword).replace('上海市', ''));
-          if (ok) {
-            resolve(ok);
-            return;
-          }
-        }
-
-        if (anchor) {
-          const resolved: GeoResolved = { coordinate: anchor, address: keyword, name: rawAddress };
-          forwardCache.set(cacheKey, resolved);
-          resolve(resolved);
-        } else {
-          reject(new Error('forward geocode failed'));
-        }
+    const placeResult = await new Promise<any>((resolve) => {
+      placeSearch.search(keyword, (status: string, result: any) => {
+        resolve({ status, result });
       });
     });
-  });
+
+    if (placeResult.status === 'complete' && placeResult.result && placeResult.result.poiList && placeResult.result.poiList.pois && placeResult.result.poiList.pois.length > 0) {
+      for (const poi of placeResult.result.poiList.pois) {
+        const loc = poi.location;
+        if (!loc) continue;
+        let lat: number, lng: number;
+        if (typeof loc === 'string') {
+          [lng, lat] = loc.split(',').map(Number);
+        } else if (loc.lng !== undefined && loc.lat !== undefined) {
+          lng = loc.lng;
+          lat = loc.lat;
+        } else {
+          continue;
+        }
+        const c: Coordinate = { lat, lng };
+        const ok = accept(c, poi.address || poi.name || keyword, poi.name || rawAddress);
+        if (ok) return ok;
+      }
+    }
+
+    const geocoder = new AMap.Geocoder({
+      city: AMAP_CONFIG.city,
+    });
+
+    const fullAddress = keyword.startsWith('上海') ? keyword : `上海市${keyword}`;
+    const geocodeResult = await new Promise<any>((resolve) => {
+      geocoder.getLocation(fullAddress, (status: string, result: any) => {
+        resolve({ status, result });
+      });
+    });
+
+    if (geocodeResult.status === 'complete' && geocodeResult.geocodes && geocodeResult.geocodes.length > 0) {
+      const g = geocodeResult.geocodes[0];
+      const [lng, lat] = g.location.split(',').map(Number);
+      const c: Coordinate = { lat, lng };
+      const ok = accept(c, g.formatted_address || fullAddress, (g.formatted_address || keyword).replace('上海市', ''));
+      if (ok) return ok;
+    }
+
+    if (anchor) {
+      const resolved: GeoResolved = { coordinate: anchor, address: keyword, name: rawAddress };
+      forwardCache.set(cacheKey, resolved);
+      return resolved;
+    }
+    
+    throw new Error('forward geocode failed');
+  } catch (err) {
+    console.log('地理编码失败:', err);
+    if (anchor) {
+      const resolved: GeoResolved = { coordinate: anchor, address: keyword, name: rawAddress };
+      forwardCache.set(cacheKey, resolved);
+      return resolved;
+    }
+    throw err;
+  }
 }
 
 export async function searchNearbyPOIs(coordinate: Coordinate, keyword: string = ''): Promise<Landmark[]> {
@@ -318,14 +423,12 @@ export async function searchNearbyPOIs(coordinate: Coordinate, keyword: string =
 
   try {
     await loadAMapScript();
-    await ensurePlugins(['AMap.PlaceSearch']);
-    const AMap = getAMap();
-    if (!AMap) return [];
+    const AMap = (window as any).AMap;
 
-    const placeSearch = new AMap.PlaceSearch({ 
-      city: AMAP_CONFIG.city, 
+    const placeSearch = new AMap.PlaceSearch({
+      city: AMAP_CONFIG.city,
       citylimit: true,
-      pageSize: 15 
+      pageSize: 15,
     });
 
     const categories = keyword ? [keyword] : ['小区', '住宅楼', '地铁站', '大厦', '广场', '学校'];
@@ -333,31 +436,42 @@ export async function searchNearbyPOIs(coordinate: Coordinate, keyword: string =
     const results: Landmark[] = [];
 
     for (const category of categories) {
-      const pois = await new Promise<Landmark[]>((resolve) => {
+      const placeResult = await new Promise<any>((resolve) => {
         placeSearch.searchNearBy(category, [coordinate.lng, coordinate.lat], 1500, (status: string, result: any) => {
-          console.log('AMap 附近POI搜索:', { category, status, resultCount: result?.poiList?.pois?.length || 0 });
-          
-          if (status === 'complete' && result.poiList && result.poiList.pois && result.poiList.pois.length > 0) {
-            const matches: Landmark[] = result.poiList.pois
-              .filter((poi: any) => poi.location)
-              .map((poi: any, idx: number) => ({
-                id: `nearby_${poi.id || Date.now()}_${idx}`,
-                name: poi.name || '附近地标',
-                address: poi.address || poi.name || '上海市',
-                coordinate: { lat: poi.location.getLat(), lng: poi.location.getLng() },
-                type: 'custom' as const,
-              }));
-            resolve(matches);
-          } else {
-            resolve([]);
-          }
+          resolve({ status, result });
         });
       });
 
-      for (const poi of pois) {
-        if (!uniqueNames.has(poi.name)) {
-          uniqueNames.add(poi.name);
-          results.push(poi);
+      console.log('附近POI搜索:', { category, status: placeResult.status, resultCount: placeResult.result?.poiList?.pois?.length || 0 });
+
+      if (placeResult.status === 'complete' && placeResult.result && placeResult.result.poiList && placeResult.result.poiList.pois && placeResult.result.poiList.pois.length > 0) {
+        const pois: Landmark[] = placeResult.result.poiList.pois
+          .filter((poi: any) => poi.location)
+          .map((poi: any, idx: number) => {
+            let lat: number, lng: number;
+            if (typeof poi.location === 'string') {
+              [lng, lat] = poi.location.split(',').map(Number);
+            } else if (poi.location.lng !== undefined && poi.location.lat !== undefined) {
+              lng = poi.location.lng;
+              lat = poi.location.lat;
+            } else {
+              return null;
+            }
+            return {
+              id: `nearby_${poi.id || Date.now()}_${idx}`,
+              name: poi.name || '附近地标',
+              address: poi.address || poi.name || '上海市',
+              coordinate: { lat, lng },
+              type: 'custom' as const,
+            };
+          })
+          .filter((p: any) => p !== null);
+
+        for (const poi of pois) {
+          if (!uniqueNames.has(poi.name)) {
+            uniqueNames.add(poi.name);
+            results.push(poi);
+          }
         }
       }
 
@@ -381,14 +495,12 @@ export async function searchPOIs(keyword: string): Promise<Landmark[]> {
 
   try {
     await loadAMapScript();
-    await ensurePlugins(['AMap.PlaceSearch']);
-    const AMap = getAMap();
-    if (!AMap) return [];
+    const AMap = (window as any).AMap;
 
-    const placeSearch = new AMap.PlaceSearch({ 
-      city: AMAP_CONFIG.city, 
+    const placeSearch = new AMap.PlaceSearch({
+      city: AMAP_CONFIG.city,
       citylimit: true,
-      pageSize: 20 
+      pageSize: 20,
     });
 
     const searchTerms = [
@@ -405,36 +517,42 @@ export async function searchPOIs(keyword: string): Promise<Landmark[]> {
     const results: Landmark[] = [];
 
     for (const term of searchTerms) {
-      const pois = await new Promise<Landmark[]>((resolve) => {
+      const placeResult = await new Promise<any>((resolve) => {
         placeSearch.search(term, (status: string, result: any) => {
-          console.log('AMap POI搜索:', { keyword: term, status, resultCount: result?.poiList?.pois?.length || 0 });
-          
-          if (status === 'complete' && result.poiList && result.poiList.pois && result.poiList.pois.length > 0) {
-            const matches: Landmark[] = result.poiList.pois
-              .filter((poi: any) => poi.location)
-              .filter((poi: any) => {
-                const lat = poi.location.getLat();
-                const lng = poi.location.getLng();
-                return isInShanghai({ lat, lng });
-              })
-              .map((poi: any, idx: number) => ({
-                id: `poi_${poi.id || Date.now()}_${idx}`,
-                name: poi.name || trimmed,
-                address: poi.address || poi.name || '上海市',
-                coordinate: { lat: poi.location.getLat(), lng: poi.location.getLng() },
-                type: 'custom' as const,
-              }));
-            resolve(matches);
-          } else {
-            resolve([]);
-          }
+          resolve({ status, result });
         });
       });
 
-      for (const poi of pois) {
-        if (!uniqueNames.has(poi.name)) {
-          uniqueNames.add(poi.name);
-          results.push(poi);
+      console.log('POI搜索:', { keyword: term, status: placeResult.status, resultCount: placeResult.result?.poiList?.pois?.length || 0 });
+
+      if (placeResult.status === 'complete' && placeResult.result && placeResult.result.poiList && placeResult.result.poiList.pois && placeResult.result.poiList.pois.length > 0) {
+        const pois: Landmark[] = placeResult.result.poiList.pois
+          .filter((poi: any) => poi.location)
+          .map((poi: any, idx: number) => {
+            let lat: number, lng: number;
+            if (typeof poi.location === 'string') {
+              [lng, lat] = poi.location.split(',').map(Number);
+            } else if (poi.location.lng !== undefined && poi.location.lat !== undefined) {
+              lng = poi.location.lng;
+              lat = poi.location.lat;
+            } else {
+              return null;
+            }
+            return {
+              id: `poi_${poi.id || Date.now()}_${idx}`,
+              name: poi.name || trimmed,
+              address: poi.address || poi.name || '上海市',
+              coordinate: { lat, lng },
+              type: 'custom' as const,
+            };
+          })
+          .filter((p: any) => p !== null);
+
+        for (const poi of pois) {
+          if (!uniqueNames.has(poi.name)) {
+            uniqueNames.add(poi.name);
+            results.push(poi);
+          }
         }
       }
 

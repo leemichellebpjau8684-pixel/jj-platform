@@ -1,10 +1,11 @@
 const memoryStore = require('./memoryStore');
+const https = require('https');
+const url = require('url');
 
 let store = memoryStore;
 let storeType = 'memory_store';
 let pool = null;
 
-// 生成订单编号函数
 function generate_order_no() {
   const now = new Date();
   const year = now.getFullYear();
@@ -12,6 +13,112 @@ function generate_order_no() {
   const day = String(now.getDate()).padStart(2, '0');
   const random = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
   return `ORD${year}${month}${day}${random}`;
+}
+
+const DISTRICT_CENTERS = {
+  '黄浦区': { lat: 31.2284, lng: 121.4821 },
+  '徐汇区': { lat: 31.1895, lng: 121.4325 },
+  '长宁区': { lat: 31.2155, lng: 121.4245 },
+  '静安区': { lat: 31.2484, lng: 121.4421 },
+  '普陀区': { lat: 31.2572, lng: 121.3972 },
+  '虹口区': { lat: 31.2721, lng: 121.4912 },
+  '杨浦区': { lat: 31.2942, lng: 121.5236 },
+  '闵行区': { lat: 31.0858, lng: 121.4007 },
+  '宝山区': { lat: 31.3655, lng: 121.4112 },
+  '嘉定区': { lat: 31.3825, lng: 121.2655 },
+  '浦东新区': { lat: 31.2215, lng: 121.5735 },
+  '金山区': { lat: 30.7422, lng: 121.3415 },
+  '松江区': { lat: 31.0375, lng: 121.2155 },
+  '青浦区': { lat: 31.1505, lng: 121.1245 },
+  '奉贤区': { lat: 30.9185, lng: 121.4745 },
+  '崇明区': { lat: 31.6225, lng: 121.3975 },
+  '线上': { lat: 31.2304, lng: 121.4737 }
+};
+
+function cleanAddress(addr) {
+  if (!addr) return addr;
+  let result = addr;
+  result = result.replace(/#/g, '');
+  result = result.replace(/【[^】]*】/g, '');
+  result = result.replace(/\[【[^】]*】\]/g, '');
+  result = result.replace(/【[^】]*$/g, '');
+  result = result.replace(/(大概要求|老师要求|学生情况|备注|备注要求|备注：|备注:|要求:?)/g, '');
+  result = result.replace(/(男老师|女老师|大学生|研究生|985|211|经验丰富|有耐心|认真负责|性格好)/g, '');
+  result = result.replace(/(一周.*?次|一次.*?小时|课时费|课酬|报酬|时薪|价格|可付时薪|课费)/g, '');
+  result = result.replace(/(年级|科目|性别|男生|女生|学生情况)/g, '');
+  result = result.replace(/(希望|需要|最好|优先|适合|擅长|能|想|要)/g, '');
+  result = result.replace(/(冲985|自招|竞赛|高考|中考|KET|雅思|托福|英语专业|数学系)/g, '');
+  result = result.replace(/(暑假|暑期|寒假|周六|周日|周一|周二|周三|周四|周五)/g, '');
+  result = result.replace(/[\u{1F300}-\u{1F5FF}\u{1F900}-\u{1F9FF}]/gu, '');
+  result = result.replace(/[:：]/g, '');
+  result = result.replace(/\s+/g, '');
+  result = result.replace(/[,，]/g, '');
+  result = result.trim();
+  return result;
+}
+
+async function geocodeAddress(address, district) {
+  return new Promise((resolve) => {
+    try {
+      const cleanedAddr = cleanAddress(address);
+      const fullAddress = district ? `${district}${cleanedAddr}` : cleanedAddr;
+      const amapKey = process.env.VITE_AMAP_WEB_KEY || process.env.AMAP_WEB_KEY;
+      
+      if (!amapKey || !fullAddress) {
+        resolve(null);
+        return;
+      }
+      
+      const query = new URLSearchParams({
+        address: fullAddress,
+        city: '上海市',
+        key: amapKey
+      });
+      
+      const amapUrl = `https://restapi.amap.com/v3/geocode/geo?${query.toString()}`;
+      const options = url.parse(amapUrl);
+      options.headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      };
+      
+      const timeout = setTimeout(() => {
+        console.log(`地理编码超时: ${fullAddress}`);
+        resolve(null);
+      }, 5000);
+      
+      https.get(options, (response) => {
+        clearTimeout(timeout);
+        let data = '';
+        response.on('data', (chunk) => { data += chunk; });
+        response.on('end', () => {
+          try {
+            const result = JSON.parse(data);
+            if (result.status === '1' && result.geocodes && result.geocodes.length > 0) {
+              const location = result.geocodes[0].location;
+              if (location) {
+                const [lng, lat] = location.split(',').map(Number);
+                if (!isNaN(lat) && !isNaN(lng)) {
+                  resolve({ lat, lng });
+                  return;
+                }
+              }
+            }
+            resolve(null);
+          } catch (e) {
+            console.error('地理编码解析失败:', e.message);
+            resolve(null);
+          }
+        });
+      }).on('error', (err) => {
+        clearTimeout(timeout);
+        console.error('地理编码请求失败:', err.message);
+        resolve(null);
+      });
+    } catch (err) {
+      console.error('地理编码异常:', err.message);
+      resolve(null);
+    }
+  });
 }
 
 async function initStore() {
@@ -54,29 +161,25 @@ async function initStore() {
               district, address, teaching_type, source, order_no
             });
             
-            const DISTRICT_CENTERS = {
-              '黄浦区': { lat: 31.2284, lng: 121.4821 },
-              '徐汇区': { lat: 31.1895, lng: 121.4325 },
-              '长宁区': { lat: 31.2155, lng: 121.4245 },
-              '静安区': { lat: 31.2484, lng: 121.4421 },
-              '普陀区': { lat: 31.2572, lng: 121.3972 },
-              '虹口区': { lat: 31.2721, lng: 121.4912 },
-              '杨浦区': { lat: 31.2942, lng: 121.5236 },
-              '闵行区': { lat: 31.0858, lng: 121.4007 },
-              '宝山区': { lat: 31.3655, lng: 121.4112 },
-              '嘉定区': { lat: 31.3825, lng: 121.2655 },
-              '浦东新区': { lat: 31.2215, lng: 121.5735 },
-              '金山区': { lat: 30.7422, lng: 121.3415 },
-              '松江区': { lat: 31.0375, lng: 121.2155 },
-              '青浦区': { lat: 31.1505, lng: 121.1245 },
-              '奉贤区': { lat: 30.9185, lng: 121.4745 },
-              '崇明区': { lat: 31.6225, lng: 121.3975 },
-              '线上': { lat: 31.2304, lng: 121.4737 }
-            };
-            
             const defaultCoord = DISTRICT_CENTERS[district] || { lat: 31.2304, lng: 121.4737 };
-            const finalLat = latitude ?? defaultCoord.lat;
-            const finalLng = longitude ?? defaultCoord.lng;
+            
+            let finalLat = latitude ?? defaultCoord.lat;
+            let finalLng = longitude ?? defaultCoord.lng;
+            let geoStatus = 'pending';
+            
+            if (!latitude && !longitude && address && district) {
+              const geocodeResult = await geocodeAddress(address, district);
+              if (geocodeResult) {
+                finalLat = geocodeResult.lat;
+                finalLng = geocodeResult.lng;
+                geoStatus = 'completed';
+                console.log(`地理编码成功: ${district}${address} -> ${finalLat}, ${finalLng}`);
+              } else {
+                console.log(`地理编码失败，使用区县中心: ${district}${address}`);
+              }
+            } else if (latitude && longitude) {
+              geoStatus = 'completed';
+            }
             
             const result = await pool.query(
               `INSERT INTO orders (
@@ -86,13 +189,13 @@ async function initStore() {
                 teaching_type, requirements, source, raw_content,
                 frequency, status, geo_status
               ) VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, 'draft', 'pending'
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, 'draft', $18
               ) RETURNING *`,
               [(order_no === undefined || order_no === null) ? generate_order_no() : order_no, title, subject, education_stage, grade_detail,
                salary_min ?? null, salary_max ?? null, contact_fee ?? null,
                district, address, finalLat, finalLng,
                teaching_type, requirements ?? null, source, raw_content ?? null,
-               frequency ?? null]
+               frequency ?? null, geoStatus]
             );
             return result.rows[0];
           } catch (err) {
@@ -370,4 +473,11 @@ async function initStore() {
   }
 }
 
-module.exports = { getStore: () => store, getStoreType: () => storeType, initStore, getPool: () => pool };
+module.exports = { 
+  getStore: () => store, 
+  getStoreType: () => storeType, 
+  initStore, 
+  getPool: () => pool,
+  geocodeAddress,
+  cleanAddress
+};

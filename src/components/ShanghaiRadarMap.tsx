@@ -13,6 +13,9 @@ interface ShanghaiRadarMapProps {
   onModifyLandmark: () => void;
   activeTab: 'list' | 'map';
   onUpdateLandmark: (landmark: Landmark) => void;
+  selectedDistricts: string[];
+  geocodedCache: Record<string, { lat: number; lng: number }>;
+  setGeocodedCache: (cache: Record<string, { lat: number; lng: number }>) => void;
 }
 
 export default function ShanghaiRadarMap({
@@ -24,6 +27,9 @@ export default function ShanghaiRadarMap({
   onModifyLandmark,
   activeTab,
   onUpdateLandmark,
+  selectedDistricts,
+  geocodedCache,
+  setGeocodedCache,
 }: ShanghaiRadarMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<any>(null);
@@ -31,8 +37,11 @@ export default function ShanghaiRadarMap({
   const [isLoaded, setIsLoaded] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  const [geocodedCache, setGeocodedCache] = useState<Record<string, { lat: number; lng: number }>>({});
-  const geocodedCacheRef = useRef<Record<string, { lat: number; lng: number }>>({});
+  const geocodedCacheRef = useRef<Record<string, { lat: number; lng: number }>>(geocodedCache);
+
+  useEffect(() => {
+    geocodedCacheRef.current = geocodedCache;
+  }, [geocodedCache]);
 
   const markersRef = useRef<any[]>([]);
   const orderMarkersMapRef = useRef<globalThis.Map<string, any>>(new globalThis.Map());
@@ -44,63 +53,75 @@ export default function ShanghaiRadarMap({
   const lastUpdateRef = useRef<{ landmarkId: string | null; orderIds: string[] }>({ landmarkId: null, orderIds: [] });
 
   const [selectedMapOrder, setSelectedMapOrder] = useState<Order | null>(null);
+  const [isGeocoding, setIsGeocoding] = useState(false);
+  const [showDistrictTip, setShowDistrictTip] = useState(() => {
+    try {
+      return localStorage.getItem('map_district_tip_dismissed') !== 'true';
+    } catch {
+      return true;
+    }
+  });
+
+  const dismissDistrictTip = () => {
+    setShowDistrictTip(false);
+    try {
+      localStorage.setItem('map_district_tip_dismissed', 'true');
+    } catch {}
+  };
 
   useEffect(() => {
     if (!isLoaded) return;
+    if (selectedDistricts.length === 0) return;
 
     const pendingOrders = filteredOrders.filter((order) => !geocodedCacheRef.current[order.id]);
 
-    if (pendingOrders.length === 0) return;
+    if (pendingOrders.length === 0) {
+      setIsGeocoding(false);
+      return;
+    }
 
+    setIsGeocoding(true);
     let cancelled = false;
-    let timeoutId: NodeJS.Timeout | null = null;
 
     const processOrders = async () => {
-      // 延迟5秒开始，让用户定位功能优先
-      timeoutId = setTimeout(async () => {
+      for (let i = 0; i < pendingOrders.length; i++) {
         if (cancelled) return;
 
-        for (let i = 0; i < pendingOrders.length; i++) {
+        const order = pendingOrders[i];
+        if (geocodedCacheRef.current[order.id]) continue;
+
+        try {
+          const result = await forwardGeocode(order.address, {
+            district: order.district,
+            anchor: order.coordinate,
+            maxDeviationKm: 10
+          });
+
           if (cancelled) return;
 
-          const order = pendingOrders[i];
-          // 跳过已经有缓存的订单
-          if (geocodedCacheRef.current[order.id]) continue;
-
-          try {
-            const result = await forwardGeocode(order.address, {
-              district: order.district,
-              anchor: order.coordinate,
-              maxDeviationKm: 10
-            });
-            if (cancelled) return;
-
-            const coords = result.coordinate;
-            geocodedCacheRef.current[order.id] = coords;
-          } catch (err) {
-            // 静默失败，不打印大量警告
-          }
-          // 间隔500ms，避免请求过快
-          if (i < pendingOrders.length - 1) {
-            await new Promise(resolve => setTimeout(resolve, 500));
-          }
-        }
-
-        // 地理编码全部完成后，批量更新标记
-        if (!cancelled) {
+          const coords = result.coordinate;
+          console.log(`订单 ${order.id} 地理编码结果: ${order.address} -> ${coords.lat}, ${coords.lng} (原坐标: ${order.coordinate.lat}, ${order.coordinate.lng})`);
+          geocodedCacheRef.current[order.id] = coords;
           setGeocodedCache({ ...geocodedCacheRef.current });
           updateMarkersAndCoordinates();
+        } catch (err) {
+          console.log(`订单 ${order.id} 地理编码失败:`, err);
         }
-      }, 5000);
+
+        if (i < pendingOrders.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 800));
+        }
+      }
+      setIsGeocoding(false);
     };
 
     processOrders();
 
     return () => {
       cancelled = true;
-      if (timeoutId) clearTimeout(timeoutId);
+      setIsGeocoding(false);
     };
-  }, [isLoaded, filteredOrders.length]);
+  }, [isLoaded, filteredOrders.length, JSON.stringify(selectedDistricts)]);
 
   useEffect(() => {
     loadAMapScript()
@@ -247,15 +268,23 @@ export default function ShanghaiRadarMap({
   const performUpdateMarkersAndCoordinates = (map: any) => {
     const AMap = (window as any).AMap;
 
-    // 检查是否需要更新地标标记
     const shouldUpdateLandmark = currentLandmark?.id !== lastUpdateRef.current.landmarkId;
-
-    // 检查是否需要更新订单标记
+    
     const currentOrderIds = filteredOrders.map(o => o.id);
     const ordersChanged = JSON.stringify(currentOrderIds) !== JSON.stringify(lastUpdateRef.current.orderIds);
+    
+    const geocodedChanged = filteredOrders.some(order => {
+      const cached = geocodedCacheRef.current[order.id];
+      const existingMarker = orderMarkersMapRef.current.get(order.id);
+      if (!cached || !existingMarker) return false;
+      const currentPos = existingMarker.getPosition();
+      if (!currentPos) return false;
+      return Math.abs(currentPos.getLat() - cached.lat) > 0.0001 || 
+             Math.abs(currentPos.getLng() - cached.lng) > 0.0001;
+    });
 
     // 如果什么都没变，跳过更新
-    if (!shouldUpdateLandmark && !ordersChanged) {
+    if (!shouldUpdateLandmark && !ordersChanged && !geocodedChanged) {
       return;
     }
 
@@ -318,7 +347,7 @@ export default function ShanghaiRadarMap({
     }
 
     // 更新订单标记（如果需要）
-    if (ordersChanged) {
+    if (ordersChanged || geocodedChanged) {
       // 找出需要添加和移除的标记
       const currentIds = new globalThis.Set(currentOrderIds);
       const existingIds = new globalThis.Set(orderMarkersMapRef.current.keys());
@@ -340,10 +369,12 @@ export default function ShanghaiRadarMap({
         const isSelected = selectedOrderId === order.id;
         const existingMarker = orderMarkersMapRef.current.get(order.id);
 
-        // 如果标记存在且坐标相同，只更新选中状态
         if (existingMarker) {
+          const currentPos = existingMarker.getPosition();
+          if (currentPos && (Math.abs(currentPos.getLat() - coords.lat) > 0.0001 || Math.abs(currentPos.getLng() - coords.lng) > 0.0001)) {
+            existingMarker.setPosition([coords.lng, coords.lat]);
+          }
           existingMarker.setzIndex(isSelected ? 120 : 100);
-          // 更新内容以反映选中状态
           const content = existingMarker.getContent();
           if (content) {
             updateMarkerContent(content, order, isSelected);
@@ -559,9 +590,41 @@ export default function ShanghaiRadarMap({
       <div 
         id="amap-radar-map-container"
         ref={containerRef} 
-        className="flex-1 w-full h-full"
+        className="flex-1 w-full h-full relative"
         style={{ display: loadError ? 'none' : 'block' }}
-      />
+      >
+        {showDistrictTip && (
+          <div className="absolute inset-0 bg-black/60 flex items-center justify-center z-50">
+            <div className="bg-neutral-950/95 backdrop-blur-md border border-neutral-800 rounded-xl p-6 text-center max-w-xs shadow-2xl">
+              <div className="text-3xl mb-3">📍</div>
+              <h3 className="text-sm font-black text-white mb-3">查看方式</h3>
+              <p className="text-[11px] text-neutral-400 mb-4">
+                请各位老师<span className="font-bold text-orange-500">选择地区</span>来查看辅导具体位置~
+              </p>
+              <button
+                onClick={dismissDistrictTip}
+                className="px-6 py-2 bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold rounded-lg transition cursor-pointer shadow-lg shadow-orange-500/20"
+              >
+                知道了
+              </button>
+            </div>
+          </div>
+        )}
+
+        {selectedDistricts.length > 0 && isGeocoding && filteredOrders.length > 0 && (
+          <div className="absolute inset-0 bg-black/40 flex items-center justify-center z-40 pointer-events-none">
+            <div className="bg-neutral-950/90 backdrop-blur-md border border-neutral-800/60 rounded-xl p-4 text-center shadow-xl">
+              <div className="flex items-center justify-center gap-2 mb-2">
+                <div className="w-4 h-4 border-2 border-orange-500 border-t-transparent rounded-full animate-spin" />
+                <span className="text-xs font-bold text-white">正在定位家教地址...</span>
+              </div>
+              <p className="text-[10px] text-neutral-400">
+                已完成 {filteredOrders.filter(order => geocodedCacheRef.current[order.id]).length} / {filteredOrders.length}
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
 
       <div className="absolute bottom-3 right-3 bg-neutral-950/90 backdrop-blur-sm border border-neutral-800/80 px-3 py-2 rounded-lg z-30 text-[9.5px] text-neutral-400 flex items-center gap-3.5 select-none font-sans font-medium shadow-2xl">
         <div className="flex items-center gap-1.5">

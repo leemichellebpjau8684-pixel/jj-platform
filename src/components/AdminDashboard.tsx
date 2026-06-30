@@ -326,6 +326,44 @@ export default function AdminDashboard({
         }
       }
       
+      // 规则2.5：查找4-7位数字开头的行（排除地址、时间、薪资行）
+      if (!orderId) {
+        for (const line of lines) {
+          const numMatch = line.match(/^(\d{4,7})/);
+          if (numMatch && !line.includes('路') && !line.includes('弄') && !line.includes('号') && 
+              !line.includes('小时') && !line.includes('/h') && !line.includes('元') && !line.includes('次') &&
+              !line.includes('：') && !line.includes('【')) {
+            orderId = numMatch[1];
+            idLine = line.trim();
+            break;
+          }
+        }
+      }
+      
+      // 规则2.6：查找"编号"后跟数字（如 上海线下编号06302）
+      if (!orderId) {
+        const numberedMatch = block.match(/编号(\d{4,8})/);
+        if (numberedMatch) {
+          orderId = numberedMatch[1];
+          const idLineIndex = lines.findIndex(line => line.includes('编号'));
+          if (idLineIndex >= 0) {
+            idLine = lines[idLineIndex].trim();
+          }
+        }
+      }
+      
+      // 规则2.7：处理括号格式编号（如 01640（未出））
+      if (!orderId) {
+        const bracketNumMatch = block.match(/^(\d{4,8})\s*[（(]/m);
+        if (bracketNumMatch) {
+          orderId = bracketNumMatch[1];
+          const idLineIndex = lines.findIndex(line => line.match(/^\d{4,8}\s*[（(]/));
+          if (idLineIndex >= 0) {
+            idLine = lines[idLineIndex].trim();
+          }
+        }
+      }
+      
       // 规则3：查找 emoji + 字母数字组合（如 🍊CWL24032804）
       if (!orderId) {
         const emojiLetterMatch = block.match(/[^\w\s\u4e00-\u9fff：:]([A-Za-z]{2,}\d{4,}[A-Za-z0-9]*)/);
@@ -526,6 +564,23 @@ export default function AdminDashboard({
             }
           }
         }
+      } else {
+        // Fallback: extract grade from 【学员情况】 or 【学生情况】
+        const studentText = extractBracketField(block, ['学员情况', '学生情况']);
+        if (studentText) {
+          const gradeMatch = studentText.match(/(小学|初中|高中|初一|初二|初三|高一|高二|高三|六年级|五年级|四年级|三年级|二年级|一年级|七年级|八年级|九年级)/);
+          if (gradeMatch) {
+            gradeDetail = gradeMatch[1];
+            if (gradeMatch[1].includes('小学') || gradeMatch[1].includes('一') || gradeMatch[1].includes('二') || 
+                gradeMatch[1].includes('三') || gradeMatch[1].includes('四') || gradeMatch[1].includes('五') || gradeMatch[1].includes('六')) {
+              mathGrade = '小学';
+            } else if (gradeMatch[1].includes('初中') || gradeMatch[1].includes('七') || gradeMatch[1].includes('八') || gradeMatch[1].includes('九')) {
+              mathGrade = '初中';
+            } else if (gradeMatch[1].includes('高中') || gradeMatch[1].includes('高一') || gradeMatch[1].includes('高二') || gradeMatch[1].includes('高三')) {
+              mathGrade = '高中';
+            }
+          }
+        }
       }
       
       // Check for age patterns like "xx岁" where xx < 10
@@ -670,7 +725,8 @@ export default function AdminDashboard({
         (() => {
           const subjectMatch = block.match(/(?:辅导科目|科目|学科)[:：\s]*(.+?)(?:[，,。\n]|$)/);
           return subjectMatch ? subjectMatch[1].trim() : '';
-        })();
+        })() || 
+        extractBracketField(block, ['课程内容']);
       
       // Parse subject content to extract standard subjects
       if (subjectContent) {
